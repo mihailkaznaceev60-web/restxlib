@@ -1,5 +1,5 @@
---// NexusUI Library
---// Модульная библиотека для создания чит-стиля интерфейсов в Roblox
+--// NexusUI Library v2.0 (Stable)
+--// Исправлены краши и ошибки
 
 local NexusUI = {}
 NexusUI.__index = NexusUI
@@ -9,10 +9,10 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 
 --// Default Config
 NexusUI.DefaultConfig = {
-    -- Colors
     Background = Color3.fromRGB(15, 15, 20),
     Surface = Color3.fromRGB(25, 25, 35),
     Accent = Color3.fromRGB(0, 255, 136),
@@ -20,32 +20,36 @@ NexusUI.DefaultConfig = {
     Text = Color3.fromRGB(255, 255, 255),
     TextDim = Color3.fromRGB(150, 150, 170),
     Border = Color3.fromRGB(40, 40, 55),
-    
-    -- Dimensions
     WindowWidth = 600,
     WindowHeight = 400,
     SidebarWidth = 160,
     HeaderHeight = 45,
-    
-    -- Animation
     AnimationSpeed = 0.3,
     EasingStyle = Enum.EasingStyle.Quad,
     EasingDirection = Enum.EasingDirection.Out
 }
 
 --// Utility Functions
-local function Tween(object, properties, config)
-    local tween = TweenService:Create(
-        object,
-        TweenInfo.new(
-            config and config.Duration or NexusUI.DefaultConfig.AnimationSpeed,
-            config and config.EasingStyle or NexusUI.DefaultConfig.EasingStyle,
-            config and config.EasingDirection or NexusUI.DefaultConfig.EasingDirection
-        ),
-        properties
-    )
-    tween:Play()
-    return tween
+local function Tween(object, properties, info)
+    if not object or not object.Parent then return nil end
+    
+    local duration = NexusUI.DefaultConfig.AnimationSpeed
+    local style = NexusUI.DefaultConfig.EasingStyle
+    local direction = NexusUI.DefaultConfig.EasingDirection
+    
+    if type(info) == "table" then
+        duration = info.Duration or duration
+        style = info.EasingStyle or style
+        direction = info.EasingDirection or direction
+    end
+    
+    local success, result = pcall(function()
+        local tween = TweenService:Create(object, TweenInfo.new(duration, style, direction), properties)
+        tween:Play()
+        return tween
+    end)
+    
+    return success and result or nil
 end
 
 local function CreateCorner(parent, radius)
@@ -70,19 +74,47 @@ NexusUI.Window.__index = NexusUI.Window
 function NexusUI.Window.new(title, config)
     local self = setmetatable({}, NexusUI.Window)
     
-    config = config or {}
-    self.Config = setmetatable(config, {__index = NexusUI.DefaultConfig})
-    self.Title = title or "Nexus UI"
+    --// Validate inputs
+    self.Title = tostring(title or "Nexus UI")
+    self.Config = {}
+    
+    --// Deep copy default config
+    for k, v in pairs(NexusUI.DefaultConfig) do
+        self.Config[k] = v
+    end
+    
+    --// Apply custom config
+    if type(config) == "table" then
+        for k, v in pairs(config) do
+            self.Config[k] = v
+        end
+    end
+    
     self.Tabs = {}
     self.ActiveTab = nil
     self.Minimized = false
     self.Visible = true
+    self._connections = {} -- Store connections for cleanup
+    
+    --// Wait for PlayerGui
+    local player = Players.LocalPlayer
+    if not player then
+        warn("NexusUI: Must be run in game context")
+        return nil
+    end
+    
+    local playerGui = player:WaitForChild("PlayerGui", 10)
+    if not playerGui then
+        warn("NexusUI: Failed to get PlayerGui")
+        return nil
+    end
     
     --// Create ScreenGui
     self.ScreenGui = Instance.new("ScreenGui")
-    self.ScreenGui.Name = "NexusUI_" .. title:gsub("%s+", "")
+    self.ScreenGui.Name = "NexusUI_" .. HttpService:GenerateGUID(false):sub(1, 8)
     self.ScreenGui.ResetOnSpawn = false
     self.ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    self.ScreenGui.Parent = playerGui
     
     --// Create Main Frame
     self.MainFrame = Instance.new("Frame")
@@ -97,24 +129,20 @@ function NexusUI.Window.new(title, config)
     CreateCorner(self.MainFrame, 12)
     CreateStroke(self.MainFrame, self.Config.Border, 2)
     
-    --// Create Header
+    --// Create components
     self:CreateHeader()
-    
-    --// Create Sidebar
     self:CreateSidebar()
-    
-    --// Setup Dragging
     self:SetupDragging()
     
-    --// Parent to PlayerGui
-    self.ScreenGui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
-    
     --// Intro Animation
+    local targetSize = UDim2.new(0, self.Config.WindowWidth, 0, self.Config.WindowHeight)
     self.MainFrame.Size = UDim2.new(0, 0, 0, 0)
-    Tween(self.MainFrame, {Size = UDim2.new(0, self.Config.WindowWidth, 0, self.Config.WindowHeight)}, {
-        Duration = 0.5,
-        EasingStyle = Enum.EasingStyle.Back
-    })
+    
+    task.delay(0.1, function()
+        if self.MainFrame and self.MainFrame.Parent then
+            Tween(self.MainFrame, {Size = targetSize}, {Duration = 0.5, EasingStyle = Enum.EasingStyle.Back})
+        end
+    end)
     
     return self
 end
@@ -153,13 +181,24 @@ function NexusUI.Window:CreateHeader()
     closeBtn.TextColor3 = self.Config.Accent2
     closeBtn.TextSize = 18
     closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.AutoButtonColor = false
     closeBtn.Parent = self.Header
     CreateCorner(closeBtn, 6)
     CreateStroke(closeBtn, self.Config.Border, 1)
     
-    closeBtn.MouseButton1Click:Connect(function()
+    table.insert(self._connections, closeBtn.MouseEnter:Connect(function()
+        Tween(closeBtn, {BackgroundColor3 = self.Config.Accent2})
+        closeBtn.TextColor3 = self.Config.Background
+    end))
+    
+    table.insert(self._connections, closeBtn.MouseLeave:Connect(function()
+        Tween(closeBtn, {BackgroundColor3 = self.Config.Surface})
+        closeBtn.TextColor3 = self.Config.Accent2
+    end))
+    
+    table.insert(self._connections, closeBtn.MouseButton1Click:Connect(function()
         self:Destroy()
-    end)
+    end))
     
     --// Minimize Button
     local minBtn = Instance.new("TextButton")
@@ -171,13 +210,24 @@ function NexusUI.Window:CreateHeader()
     minBtn.TextColor3 = self.Config.TextDim
     minBtn.TextSize = 18
     minBtn.Font = Enum.Font.GothamBold
+    minBtn.AutoButtonColor = false
     minBtn.Parent = self.Header
     CreateCorner(minBtn, 6)
     CreateStroke(minBtn, self.Config.Border, 1)
     
-    minBtn.MouseButton1Click:Connect(function()
+    table.insert(self._connections, minBtn.MouseEnter:Connect(function()
+        Tween(minBtn, {BackgroundColor3 = self.Config.Accent})
+        minBtn.TextColor3 = self.Config.Background
+    end))
+    
+    table.insert(self._connections, minBtn.MouseLeave:Connect(function()
+        Tween(minBtn, {BackgroundColor3 = self.Config.Surface})
+        minBtn.TextColor3 = self.Config.TextDim
+    end))
+    
+    table.insert(self._connections, minBtn.MouseButton1Click:Connect(function()
         self:ToggleMinimize()
-    end)
+    end))
 end
 
 function NexusUI.Window:CreateSidebar()
@@ -192,6 +242,7 @@ function NexusUI.Window:CreateSidebar()
     
     --// Divider
     local divider = Instance.new("Frame")
+    divider.Name = "Divider"
     divider.Size = UDim2.new(0, 1, 1, 0)
     divider.Position = UDim2.new(1, 0, 0, 0)
     divider.BackgroundColor3 = self.Config.Border
@@ -206,62 +257,81 @@ function NexusUI.Window:CreateSidebar()
     self.TabContainer.BackgroundTransparency = 1
     self.TabContainer.ScrollBarThickness = 2
     self.TabContainer.ScrollBarImageColor3 = self.Config.Accent
-    self.TabContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    self.TabContainer.ScrollingDirection = Enum.ScrollingDirection.Y
+    self.TabContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
     self.TabContainer.Parent = self.Sidebar
     
     local layout = Instance.new("UIListLayout")
+    layout.Name = "Layout"
     layout.Padding = UDim.new(0, 8)
     layout.Parent = self.TabContainer
+    
+    --// Auto update canvas size
+    table.insert(self._connections, layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        if self.TabContainer and self.TabContainer.Parent then
+            self.TabContainer.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y)
+        end
+    end))
 end
 
 function NexusUI.Window:SetupDragging()
     local dragging = false
-    local dragStart, startPos
+    local dragStart = nil
+    local startPos = nil
     
-    self.Header.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+    local inputBegan = self.Header.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
             startPos = self.MainFrame.Position
         end
     end)
+    table.insert(self._connections, inputBegan)
     
-    self.Header.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+    local inputEnded = self.Header.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
         end
     end)
+    table.insert(self._connections, inputEnded)
     
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+    local inputChanged = UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStart
-            self.MainFrame.Position = UDim2.new(
-                startPos.X.Scale, 
-                startPos.X.Offset + delta.X, 
-                startPos.Y.Scale, 
-                startPos.Y.Offset + delta.Y
-            )
+            if self.MainFrame and self.MainFrame.Parent then
+                self.MainFrame.Position = UDim2.new(
+                    startPos.X.Scale, 
+                    startPos.X.Offset + delta.X, 
+                    startPos.Y.Scale, 
+                    startPos.Y.Offset + delta.Y
+                )
+            end
         end
     end)
+    table.insert(self._connections, inputChanged)
 end
 
 function NexusUI.Window:AddTab(name, icon)
     local tab = {}
-    tab.Name = name
-    tab.Icon = icon or "⚡"
+    tab.Name = tostring(name)
+    tab.Icon = tostring(icon or "⚡")
+    tab.Window = self
     tab.Elements = {}
+    tab._connections = {}
     
     --// Tab Button
     tab.Button = Instance.new("TextButton")
-    tab.Button.Name = name
+    tab.Button.Name = tab.Name
     tab.Button.Size = UDim2.new(1, 0, 0, 40)
     tab.Button.BackgroundColor3 = self.Config.Background
     tab.Button.Text = ""
+    tab.Button.AutoButtonColor = false
     tab.Button.Parent = self.TabContainer
     CreateCorner(tab.Button, 8)
     
     --// Icon
     local iconLabel = Instance.new("TextLabel")
+    iconLabel.Name = "Icon"
     iconLabel.Size = UDim2.new(0, 30, 0, 30)
     iconLabel.Position = UDim2.new(0, 10, 0.5, -15)
     iconLabel.BackgroundTransparency = 1
@@ -273,10 +343,11 @@ function NexusUI.Window:AddTab(name, icon)
     
     --// Text
     local textLabel = Instance.new("TextLabel")
+    textLabel.Name = "Text"
     textLabel.Size = UDim2.new(1, -50, 1, 0)
     textLabel.Position = UDim2.new(0, 45, 0, 0)
     textLabel.BackgroundTransparency = 1
-    textLabel.Text = name
+    textLabel.Text = tab.Name
     textLabel.TextColor3 = self.Config.TextDim
     textLabel.TextSize = 14
     textLabel.Font = Enum.Font.Gotham
@@ -296,7 +367,7 @@ function NexusUI.Window:AddTab(name, icon)
     
     --// Content Frame
     tab.Content = Instance.new("ScrollingFrame")
-    tab.Content.Name = name .. "Content"
+    tab.Content.Name = tab.Name .. "Content"
     tab.Content.Size = UDim2.new(
         1, 
         -(self.Config.SidebarWidth + 20), 
@@ -307,61 +378,90 @@ function NexusUI.Window:AddTab(name, icon)
     tab.Content.BackgroundTransparency = 1
     tab.Content.ScrollBarThickness = 4
     tab.Content.ScrollBarImageColor3 = self.Config.Accent
-    tab.Content.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    tab.Content.ScrollingDirection = Enum.ScrollingDirection.Y
+    tab.Content.CanvasSize = UDim2.new(0, 0, 0, 0)
     tab.Content.Visible = false
     tab.Content.Parent = self.MainFrame
     
     local layout = Instance.new("UIListLayout")
+    layout.Name = "Layout"
     layout.Padding = UDim.new(0, 12)
     layout.Parent = tab.Content
     
     local padding = Instance.new("UIPadding")
+    padding.Name = "Padding"
     padding.PaddingLeft = UDim.new(0, 10)
     padding.PaddingRight = UDim.new(0, 10)
     padding.Parent = tab.Content
     
-    --// Tab Selection Logic
-    tab.Button.MouseButton1Click:Connect(function()
+    --// Auto update canvas size
+    table.insert(tab._connections, layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        if tab.Content and tab.Content.Parent then
+            tab.Content.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
+        end
+    end))
+    
+    --// Tab Selection
+    table.insert(tab._connections, tab.Button.MouseButton1Click:Connect(function()
         self:SelectTab(tab)
-    end)
+    end))
     
     --// Hover Effects
-    tab.Button.MouseEnter:Connect(function()
+    table.insert(tab._connections, tab.Button.MouseEnter:Connect(function()
         if self.ActiveTab ~= tab then
             Tween(tab.Button, {BackgroundColor3 = Color3.fromRGB(35, 35, 50)})
             Tween(iconLabel, {TextColor3 = self.Config.Text})
         end
-    end)
+    end))
     
-    tab.Button.MouseLeave:Connect(function()
+    table.insert(tab._connections, tab.Button.MouseLeave:Connect(function()
         if self.ActiveTab ~= tab then
             Tween(tab.Button, {BackgroundColor3 = self.Config.Background})
             Tween(iconLabel, {TextColor3 = self.Config.TextDim})
         end
-    end)
+    end))
     
     table.insert(self.Tabs, tab)
     
     --// Auto-select first tab
     if #self.Tabs == 1 then
-        self:SelectTab(tab)
+        task.delay(0.2, function()
+            self:SelectTab(tab)
+        end)
     end
     
-    --// Return tab API
-    return setmetatable(tab, {
-        __index = {
-            AddToggle = function(_, ...) return NexusUI.Elements.Toggle(tab.Content, ...) end,
-            AddSlider = function(_, ...) return NexusUI.Elements.Slider(tab.Content, ...) end,
-            AddButton = function(_, ...) return NexusUI.Elements.Button(tab.Content, ...) end,
-            AddDropdown = function(_, ...) return NexusUI.Elements.Dropdown(tab.Content, ...) end,
-            AddLabel = function(_, ...) return NexusUI.Elements.Label(tab.Content, ...) end,
-            AddSeparator = function(_, ...) return NexusUI.Elements.Separator(tab.Content, ...) end
-        }
-    })
+    --// Tab API
+    local tabAPI = {}
+    
+    function tabAPI:AddToggle(text, default, callback)
+        return NexusUI.Elements.Toggle(tab.Content, text, default, callback)
+    end
+    
+    function tabAPI:AddSlider(text, min, max, default, callback)
+        return NexusUI.Elements.Slider(tab.Content, text, min, max, default, callback)
+    end
+    
+    function tabAPI:AddButton(text, callback)
+        return NexusUI.Elements.Button(tab.Content, text, callback)
+    end
+    
+    function tabAPI:AddDropdown(text, options, callback)
+        return NexusUI.Elements.Dropdown(tab.Content, text, options, callback)
+    end
+    
+    function tabAPI:AddLabel(text, options)
+        return NexusUI.Elements.Label(tab.Content, text, options)
+    end
+    
+    function tabAPI:AddSeparator()
+        return NexusUI.Elements.Separator(tab.Content)
+    end
+    
+    return tabAPI
 end
 
 function NexusUI.Window:SelectTab(tab)
-    if self.ActiveTab == tab then return end
+    if not tab or self.ActiveTab == tab then return end
     
     --// Deselect previous
     if self.ActiveTab then
@@ -369,7 +469,7 @@ function NexusUI.Window:SelectTab(tab)
         Tween(self.ActiveTab.Button, {BackgroundColor3 = self.Config.Background})
         self.ActiveTab.Content.Visible = false
         
-        local prevIcon = self.ActiveTab.Button:FindFirstChildOfClass("TextLabel")
+        local prevIcon = self.ActiveTab.Button:FindFirstChild("Icon")
         if prevIcon then
             Tween(prevIcon, {TextColor3 = self.Config.TextDim})
         end
@@ -381,7 +481,7 @@ function NexusUI.Window:SelectTab(tab)
     Tween(tab.Button, {BackgroundColor3 = Color3.fromRGB(40, 40, 60)})
     tab.Content.Visible = true
     
-    local newIcon = tab.Button:FindFirstChildOfClass("TextLabel")
+    local newIcon = tab.Button:FindFirstChild("Icon")
     if newIcon then
         Tween(newIcon, {TextColor3 = self.Config.Accent})
     end
@@ -403,13 +503,36 @@ end
 
 function NexusUI.Window:SetVisible(visible)
     self.Visible = visible
-    self.MainFrame.Visible = visible
+    if self.ScreenGui then
+        self.ScreenGui.Enabled = visible
+    end
 end
 
 function NexusUI.Window:Destroy()
-    Tween(self.MainFrame, {Size = UDim2.new(0, 0, 0, 0)}, {Duration = 0.3})
-    wait(0.3)
-    self.ScreenGui:Destroy()
+    --// Disconnect all connections
+    for _, conn in ipairs(self._connections) do
+        if conn and conn.Disconnect then
+            pcall(function() conn:Disconnect() end)
+        end
+    end
+    
+    --// Disconnect tab connections
+    for _, tab in ipairs(self.Tabs) do
+        if tab._connections then
+            for _, conn in ipairs(tab._connections) do
+                if conn and conn.Disconnect then
+                    pcall(function() conn:Disconnect() end)
+                end
+            end
+        end
+    end
+    
+    --// Destroy UI
+    if self.ScreenGui then
+        self.ScreenGui:Destroy()
+    end
+    
+    table.clear(self)
 end
 
 --// UI Elements
@@ -417,12 +540,12 @@ NexusUI.Elements = {}
 
 function NexusUI.Elements.Toggle(parent, text, default, callback)
     local toggle = {}
-    toggle.Value = default or false
-    toggle.Callback = callback or function() end
+    toggle.Value = default == true
+    toggle.Callback = type(callback) == "function" and callback or function() end
     
     --// Frame
     toggle.Frame = Instance.new("Frame")
-    toggle.Frame.Name = text .. "Toggle"
+    toggle.Frame.Name = tostring(text) .. "Toggle"
     toggle.Frame.Size = UDim2.new(1, 0, 0, 50)
     toggle.Frame.BackgroundColor3 = NexusUI.DefaultConfig.Background
     toggle.Frame.BorderSizePixel = 0
@@ -432,10 +555,11 @@ function NexusUI.Elements.Toggle(parent, text, default, callback)
     
     --// Label
     local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, -70, 1, 0)
-    label.Position = UDim2.new(0, 15, 0, 0)
+    label.Name = "Label"
+    label.Size = UDim2.new(1, -70, 0, 25)
+    label.Position = UDim2.new(0, 15, 0, 5)
     label.BackgroundTransparency = 1
-    label.Text = text
+    label.Text = tostring(text)
     label.TextColor3 = NexusUI.DefaultConfig.Text
     label.TextSize = 14
     label.Font = Enum.Font.Gotham
@@ -444,8 +568,9 @@ function NexusUI.Elements.Toggle(parent, text, default, callback)
     
     --// Status
     toggle.StatusLabel = Instance.new("TextLabel")
+    toggle.StatusLabel.Name = "Status"
     toggle.StatusLabel.Size = UDim2.new(0, 50, 0, 20)
-    toggle.StatusLabel.Position = UDim2.new(0, 15, 0, 30)
+    toggle.StatusLabel.Position = UDim2.new(0, 15, 0, 28)
     toggle.StatusLabel.BackgroundTransparency = 1
     toggle.StatusLabel.Text = toggle.Value and "ON" or "OFF"
     toggle.StatusLabel.TextColor3 = toggle.Value and NexusUI.DefaultConfig.Accent or NexusUI.DefaultConfig.TextDim
@@ -476,6 +601,7 @@ function NexusUI.Elements.Toggle(parent, text, default, callback)
     
     --// Click Area
     local clickArea = Instance.new("TextButton")
+    clickArea.Name = "ClickArea"
     clickArea.Size = UDim2.new(1, 0, 1, 0)
     clickArea.BackgroundTransparency = 1
     clickArea.Text = ""
@@ -483,18 +609,16 @@ function NexusUI.Elements.Toggle(parent, text, default, callback)
     
     --// Methods
     function toggle:Set(value)
-        toggle.Value = value
-        toggle.StatusLabel.Text = value and "ON" or "OFF"
-        toggle.StatusLabel.TextColor3 = value and NexusUI.DefaultConfig.Accent or NexusUI.DefaultConfig.TextDim
+        toggle.Value = value == true
+        toggle.StatusLabel.Text = toggle.Value and "ON" or "OFF"
+        toggle.StatusLabel.TextColor3 = toggle.Value and NexusUI.DefaultConfig.Accent or NexusUI.DefaultConfig.TextDim
         
-        Tween(switch, {BackgroundColor3 = value and NexusUI.DefaultConfig.Accent or NexusUI.DefaultConfig.Border})
+        Tween(switch, {BackgroundColor3 = toggle.Value and NexusUI.DefaultConfig.Accent or NexusUI.DefaultConfig.Border})
         Tween(toggle.Knob, {
-            Position = value and UDim2.new(1, -24, 0.5, -11) or UDim2.new(0, 2, 0.5, -11)
+            Position = toggle.Value and UDim2.new(1, -24, 0.5, -11) or UDim2.new(0, 2, 0.5, -11)
         }, {EasingStyle = Enum.EasingStyle.Back})
         
-        if toggle.Callback then
-            toggle.Callback(value)
-        end
+        toggle.Callback(toggle.Value)
     end
     
     function toggle:Toggle()
@@ -519,14 +643,17 @@ end
 
 function NexusUI.Elements.Slider(parent, text, min, max, default, callback)
     local slider = {}
-    slider.Min = min or 0
-    slider.Max = max or 100
-    slider.Value = default or slider.Min
-    slider.Callback = callback or function() end
+    slider.Min = tonumber(min) or 0
+    slider.Max = tonumber(max) or 100
+    slider.Value = tonumber(default) or slider.Min
+    slider.Callback = type(callback) == "function" and callback or function() end
+    
+    --// Clamp value
+    slider.Value = math.clamp(slider.Value, slider.Min, slider.Max)
     
     --// Frame
     slider.Frame = Instance.new("Frame")
-    slider.Frame.Name = text .. "Slider"
+    slider.Frame.Name = tostring(text) .. "Slider"
     slider.Frame.Size = UDim2.new(1, 0, 0, 70)
     slider.Frame.BackgroundColor3 = NexusUI.DefaultConfig.Background
     slider.Frame.BorderSizePixel = 0
@@ -536,10 +663,11 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, callback)
     
     --// Label
     local label = Instance.new("TextLabel")
+    label.Name = "Label"
     label.Size = UDim2.new(1, -80, 0, 25)
     label.Position = UDim2.new(0, 15, 0, 5)
     label.BackgroundTransparency = 1
-    label.Text = text
+    label.Text = tostring(text)
     label.TextColor3 = NexusUI.DefaultConfig.Text
     label.TextSize = 14
     label.Font = Enum.Font.Gotham
@@ -548,10 +676,11 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, callback)
     
     --// Value Display
     slider.ValueLabel = Instance.new("TextLabel")
+    slider.ValueLabel.Name = "Value"
     slider.ValueLabel.Size = UDim2.new(0, 50, 0, 25)
     slider.ValueLabel.Position = UDim2.new(1, -65, 0, 5)
     slider.ValueLabel.BackgroundColor3 = NexusUI.DefaultConfig.Surface
-    slider.ValueLabel.Text = tostring(slider.Value)
+    slider.ValueLabel.Text = tostring(math.floor(slider.Value))
     slider.ValueLabel.TextColor3 = NexusUI.DefaultConfig.Accent
     slider.ValueLabel.TextSize = 12
     slider.ValueLabel.Font = Enum.Font.GothamBold
@@ -571,7 +700,8 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, callback)
     --// Fill
     slider.Fill = Instance.new("Frame")
     slider.Fill.Name = "Fill"
-    slider.Fill.Size = UDim2.new((slider.Value - slider.Min)/(slider.Max - slider.Min), 0, 1, 0)
+    local percent = (slider.Value - slider.Min) / (slider.Max - slider.Min)
+    slider.Fill.Size = UDim2.new(percent, 0, 1, 0)
     slider.Fill.BackgroundColor3 = NexusUI.DefaultConfig.Accent
     slider.Fill.BorderSizePixel = 0
     slider.Fill.Parent = track
@@ -581,7 +711,7 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, callback)
     slider.Thumb = Instance.new("Frame")
     slider.Thumb.Name = "Thumb"
     slider.Thumb.Size = UDim2.new(0, 16, 0, 16)
-    slider.Thumb.Position = UDim2.new((slider.Value - slider.Min)/(slider.Max - slider.Min), -8, 0.5, -8)
+    slider.Thumb.Position = UDim2.new(percent, -8, 0.5, -8)
     slider.Thumb.BackgroundColor3 = NexusUI.DefaultConfig.Text
     slider.Thumb.BorderSizePixel = 0
     slider.Thumb.Parent = track
@@ -589,44 +719,50 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, callback)
     
     --// Methods
     function slider:Set(value)
+        value = tonumber(value) or slider.Min
         value = math.clamp(value, slider.Min, slider.Max)
         slider.Value = value
         slider.ValueLabel.Text = tostring(math.floor(value))
         
-        local percent = (value - slider.Min) / (slider.Max - slider.Min)
-        Tween(slider.Fill, {Size = UDim2.new(percent, 0, 1, 0)})
-        Tween(slider.Thumb, {Position = UDim2.new(percent, -8, 0.5, -8)})
+        local newPercent = (value - slider.Min) / (slider.Max - slider.Min)
+        Tween(slider.Fill, {Size = UDim2.new(newPercent, 0, 1, 0)})
+        Tween(slider.Thumb, {Position = UDim2.new(newPercent, -8, 0.5, -8)})
         
-        if slider.Callback then
-            slider.Callback(value)
-        end
+        slider.Callback(value)
     end
     
     --// Dragging Logic
     local dragging = false
     
     local function update(input)
+        if not track or not track.Parent then return end
+        if not track.AbsoluteSize or track.AbsoluteSize.X == 0 then return end
+        
         local percent = math.clamp((input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
         local value = slider.Min + (slider.Max - slider.Min) * percent
         slider:Set(value)
     end
     
     slider.Thumb.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             Tween(slider.Thumb, {Size = UDim2.new(0, 20, 0, 20), Position = UDim2.new(slider.Thumb.Position.X.Scale, -10, 0.5, -10)})
         end
     end)
     
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
-            Tween(slider.Thumb, {Size = UDim2.new(0, 16, 0, 16), Position = UDim2.new(slider.Thumb.Position.X.Scale, -8, 0.5, -8)})
+    local inputEnded
+    inputEnded = UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            if dragging then
+                dragging = false
+                Tween(slider.Thumb, {Size = UDim2.new(0, 16, 0, 16), Position = UDim2.new(slider.Thumb.Position.X.Scale, -8, 0.5, -8)})
+            end
         end
     end)
     
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+    local inputChanged
+    inputChanged = UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
             update(input)
         end
     end)
@@ -637,22 +773,26 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, callback)
         end
     end)
     
+    --// Store connections for cleanup
+    slider._connections = {inputEnded, inputChanged}
+    
     return slider
 end
 
 function NexusUI.Elements.Button(parent, text, callback)
     local btn = {}
-    btn.Callback = callback or function() end
+    btn.Callback = type(callback) == "function" and callback or function() end
     
     --// Frame
     btn.Frame = Instance.new("TextButton")
-    btn.Frame.Name = text .. "Button"
+    btn.Frame.Name = tostring(text) .. "Button"
     btn.Frame.Size = UDim2.new(1, 0, 0, 45)
     btn.Frame.BackgroundColor3 = NexusUI.DefaultConfig.Surface
-    btn.Frame.Text = text
+    btn.Frame.Text = tostring(text)
     btn.Frame.TextColor3 = NexusUI.DefaultConfig.Text
     btn.Frame.TextSize = 14
     btn.Frame.Font = Enum.Font.GothamBold
+    btn.Frame.AutoButtonColor = false
     btn.Frame.Parent = parent
     CreateCorner(btn.Frame, 10)
     CreateStroke(btn.Frame, NexusUI.DefaultConfig.Accent, 1)
@@ -671,8 +811,11 @@ function NexusUI.Elements.Button(parent, text, callback)
     btn.Frame.MouseButton1Click:Connect(function()
         --// Click Animation
         Tween(btn.Frame, {Size = UDim2.new(0.95, 0, 0, 45)}, {Duration = 0.1})
-        wait(0.1)
-        Tween(btn.Frame, {Size = UDim2.new(1, 0, 0, 45)}, {EasingStyle = Enum.EasingStyle.Back})
+        task.delay(0.1, function()
+            if btn.Frame and btn.Frame.Parent then
+                Tween(btn.Frame, {Size = UDim2.new(1, 0, 0, 45)}, {EasingStyle = Enum.EasingStyle.Back})
+            end
+        end)
         
         btn.Callback()
     end)
@@ -682,14 +825,14 @@ end
 
 function NexusUI.Elements.Dropdown(parent, text, options, callback)
     local dropdown = {}
-    dropdown.Options = options or {}
-    dropdown.Selected = options[1] or "Select..."
-    dropdown.Callback = callback or function() end
+    dropdown.Options = type(options) == "table" and options or {}
+    dropdown.Selected = dropdown.Options[1] or "Select..."
+    dropdown.Callback = type(callback) == "function" and callback or function() end
     dropdown.Expanded = false
     
     --// Frame
     dropdown.Frame = Instance.new("Frame")
-    dropdown.Frame.Name = text .. "Dropdown"
+    dropdown.Frame.Name = tostring(text) .. "Dropdown"
     dropdown.Frame.Size = UDim2.new(1, 0, 0, 50)
     dropdown.Frame.BackgroundColor3 = NexusUI.DefaultConfig.Background
     dropdown.Frame.BorderSizePixel = 0
@@ -700,10 +843,11 @@ function NexusUI.Elements.Dropdown(parent, text, options, callback)
     
     --// Label
     local label = Instance.new("TextLabel")
+    label.Name = "Label"
     label.Size = UDim2.new(1, -20, 0, 50)
     label.Position = UDim2.new(0, 15, 0, 0)
     label.BackgroundTransparency = 1
-    label.Text = text
+    label.Text = tostring(text)
     label.TextColor3 = NexusUI.DefaultConfig.Text
     label.TextSize = 14
     label.Font = Enum.Font.Gotham
@@ -712,10 +856,11 @@ function NexusUI.Elements.Dropdown(parent, text, options, callback)
     
     --// Selected Value
     dropdown.SelectedLabel = Instance.new("TextLabel")
+    dropdown.SelectedLabel.Name = "Selected"
     dropdown.SelectedLabel.Size = UDim2.new(0, 120, 0, 30)
     dropdown.SelectedLabel.Position = UDim2.new(1, -140, 0, 10)
     dropdown.SelectedLabel.BackgroundColor3 = NexusUI.DefaultConfig.Surface
-    dropdown.SelectedLabel.Text = dropdown.Selected
+    dropdown.SelectedLabel.Text = tostring(dropdown.Selected)
     dropdown.SelectedLabel.TextColor3 = NexusUI.DefaultConfig.Accent
     dropdown.SelectedLabel.TextSize = 12
     dropdown.SelectedLabel.Font = Enum.Font.GothamBold
@@ -724,6 +869,7 @@ function NexusUI.Elements.Dropdown(parent, text, options, callback)
     
     --// Arrow
     local arrow = Instance.new("TextLabel")
+    arrow.Name = "Arrow"
     arrow.Size = UDim2.new(0, 20, 0, 30)
     arrow.Position = UDim2.new(1, -25, 0, 10)
     arrow.BackgroundTransparency = 1
@@ -749,28 +895,37 @@ function NexusUI.Elements.Dropdown(parent, text, options, callback)
     --// Create Options
     for i, option in ipairs(dropdown.Options) do
         local optionBtn = Instance.new("TextButton")
+        optionBtn.Name = tostring(option)
         optionBtn.Size = UDim2.new(1, 0, 0, 35)
         optionBtn.BackgroundColor3 = i % 2 == 0 and NexusUI.DefaultConfig.Background or Color3.fromRGB(30, 30, 40)
-        optionBtn.Text = option
+        optionBtn.Text = tostring(option)
         optionBtn.TextColor3 = NexusUI.DefaultConfig.Text
         optionBtn.TextSize = 13
         optionBtn.Font = Enum.Font.Gotham
+        optionBtn.AutoButtonColor = false
         optionBtn.Parent = dropdown.OptionsFrame
         
         optionBtn.MouseButton1Click:Connect(function()
             dropdown:Set(option)
         end)
+        
+        optionBtn.MouseEnter:Connect(function()
+            Tween(optionBtn, {BackgroundColor3 = NexusUI.DefaultConfig.Accent})
+            optionBtn.TextColor3 = NexusUI.DefaultConfig.Background
+        end)
+        
+        optionBtn.MouseLeave:Connect(function()
+            Tween(optionBtn, {BackgroundColor3 = i % 2 == 0 and NexusUI.DefaultConfig.Background or Color3.fromRGB(30, 30, 40)})
+            optionBtn.TextColor3 = NexusUI.DefaultConfig.Text
+        end)
     end
     
     --// Methods
     function dropdown:Set(value)
-        dropdown.Selected = value
-        dropdown.SelectedLabel.Text = value
+        dropdown.Selected = tostring(value)
+        dropdown.SelectedLabel.Text = dropdown.Selected
         dropdown:Collapse()
-        
-        if dropdown.Callback then
-            dropdown.Callback(value)
-        end
+        dropdown.Callback(dropdown.Selected)
     end
     
     function dropdown:Expand()
@@ -784,8 +939,11 @@ function NexusUI.Elements.Dropdown(parent, text, options, callback)
         dropdown.Expanded = false
         Tween(dropdown.Frame, {Size = UDim2.new(1, 0, 0, 50)})
         Tween(arrow, {Rotation = 0})
-        wait(0.3)
-        dropdown.OptionsFrame.Visible = false
+        task.delay(0.3, function()
+            if dropdown.Frame and dropdown.Frame.Parent then
+                dropdown.OptionsFrame.Visible = false
+            end
+        end)
     end
     
     function dropdown:Toggle()
@@ -798,6 +956,7 @@ function NexusUI.Elements.Dropdown(parent, text, options, callback)
     
     --// Click Area
     local clickArea = Instance.new("TextButton")
+    clickArea.Name = "ClickArea"
     clickArea.Size = UDim2.new(1, 0, 0, 50)
     clickArea.BackgroundTransparency = 1
     clickArea.Text = ""
@@ -811,13 +970,13 @@ function NexusUI.Elements.Dropdown(parent, text, options, callback)
 end
 
 function NexusUI.Elements.Label(parent, text, options)
-    options = options or {}
+    options = type(options) == "table" and options or {}
     
     local label = Instance.new("TextLabel")
     label.Name = "Label"
     label.Size = UDim2.new(1, 0, 0, options.Height or 30)
     label.BackgroundTransparency = 1
-    label.Text = text
+    label.Text = tostring(text)
     label.TextColor3 = options.Color or NexusUI.DefaultConfig.Text
     label.TextSize = options.Size or 14
     label.Font = options.Bold and Enum.Font.GothamBold or Enum.Font.Gotham
@@ -840,15 +999,17 @@ function NexusUI.Elements.Separator(parent)
     return sep
 end
 
---// Watermark & Stats (Optional Features)
+--// Extras
 function NexusUI.Window:AddWatermark(text)
+    if not self.ScreenGui then return end
+    
     local watermark = Instance.new("TextLabel")
     watermark.Name = "Watermark"
     watermark.Size = UDim2.new(0, 200, 0, 30)
     watermark.Position = UDim2.new(0, 10, 0, 10)
     watermark.BackgroundColor3 = self.Config.Background
     watermark.BackgroundTransparency = 0.3
-    watermark.Text = text or self.Title
+    watermark.Text = tostring(text or self.Title)
     watermark.TextColor3 = self.Config.Accent
     watermark.TextSize = 14
     watermark.Font = Enum.Font.GothamBold
@@ -860,6 +1021,8 @@ function NexusUI.Window:AddWatermark(text)
 end
 
 function NexusUI.Window:AddStats()
+    if not self.ScreenGui then return end
+    
     local stats = {}
     
     local frame = Instance.new("Frame")
@@ -896,26 +1059,37 @@ function NexusUI.Window:AddStats()
     local fps = 0
     local lastUpdate = tick()
     
-    RunService.RenderStepped:Connect(function()
+    local connection
+    connection = RunService.RenderStepped:Connect(function()
         fps = fps + 1
         if tick() - lastUpdate >= 1 then
-            stats.FPSLabel.Text = "FPS: " .. fps
+            if stats.FPSLabel and stats.FPSLabel.Parent then
+                stats.FPSLabel.Text = "FPS: " .. fps
+            end
             fps = 0
             lastUpdate = tick()
-            stats.PingLabel.Text = "Ping: " .. math.random(15, 45) .. "ms"
+            if stats.PingLabel and stats.PingLabel.Parent then
+                stats.PingLabel.Text = "Ping: " .. math.random(15, 45) .. "ms"
+            end
         end
     end)
+    
+    table.insert(self._connections, connection)
     
     return stats
 end
 
---// Keybind System
 function NexusUI.Window:SetKeybind(keyCode)
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not keyCode then return end
+    
+    local connection
+    connection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if not gameProcessed and input.KeyCode == keyCode then
             self:SetVisible(not self.Visible)
         end
     end)
+    
+    table.insert(self._connections, connection)
 end
 
 return NexusUI
