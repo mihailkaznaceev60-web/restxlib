@@ -1,5 +1,5 @@
---// NexusUI Library v2.1 (Fixed Tabs + Slider Step)
---// Исправлены: переключение вкладок, добавлен шаг слайдера
+--// NexusUI Library v2.2 (Fixed Tab Order + Slider Step)
+--// Исправлены: порядок вкладок, переключение табов, шаг слайдера
 
 local NexusUI = {}
 NexusUI.__index = NexusUI
@@ -74,16 +74,13 @@ NexusUI.Window.__index = NexusUI.Window
 function NexusUI.Window.new(title, config)
     local self = setmetatable({}, NexusUI.Window)
     
-    --// Validate inputs
     self.Title = tostring(title or "Nexus UI")
     self.Config = {}
     
-    --// Deep copy default config
     for k, v in pairs(NexusUI.DefaultConfig) do
         self.Config[k] = v
     end
     
-    --// Apply custom config
     if type(config) == "table" then
         for k, v in pairs(config) do
             self.Config[k] = v
@@ -95,8 +92,8 @@ function NexusUI.Window.new(title, config)
     self.Minimized = false
     self.Visible = true
     self._connections = {}
+    self._firstTabSelected = false
     
-    --// Wait for PlayerGui
     local player = Players.LocalPlayer
     if not player then
         warn("NexusUI: Must be run in game context")
@@ -109,14 +106,12 @@ function NexusUI.Window.new(title, config)
         return nil
     end
     
-    --// Create ScreenGui
     self.ScreenGui = Instance.new("ScreenGui")
     self.ScreenGui.Name = "NexusUI_" .. HttpService:GenerateGUID(false):sub(1, 8)
     self.ScreenGui.ResetOnSpawn = false
     self.ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     self.ScreenGui.Parent = playerGui
     
-    --// Create Main Frame
     self.MainFrame = Instance.new("Frame")
     self.MainFrame.Name = "MainFrame"
     self.MainFrame.Size = UDim2.new(0, self.Config.WindowWidth, 0, self.Config.WindowHeight)
@@ -129,12 +124,10 @@ function NexusUI.Window.new(title, config)
     CreateCorner(self.MainFrame, 12)
     CreateStroke(self.MainFrame, self.Config.Border, 2)
     
-    --// Create components
     self:CreateHeader()
     self:CreateSidebar()
     self:SetupDragging()
     
-    --// Intro Animation
     local targetSize = UDim2.new(0, self.Config.WindowWidth, 0, self.Config.WindowHeight)
     self.MainFrame.Size = UDim2.new(0, 0, 0, 0)
     
@@ -157,7 +150,6 @@ function NexusUI.Window:CreateHeader()
     
     CreateCorner(self.Header, 12)
     
-    --// Title
     local titleLabel = Instance.new("TextLabel")
     titleLabel.Name = "Title"
     titleLabel.Size = UDim2.new(0, 200, 1, 0)
@@ -170,7 +162,6 @@ function NexusUI.Window:CreateHeader()
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
     titleLabel.Parent = self.Header
     
-    --// Close Button
     local closeBtn = Instance.new("TextButton")
     closeBtn.Name = "Close"
     closeBtn.Size = UDim2.new(0, 30, 0, 30)
@@ -199,7 +190,6 @@ function NexusUI.Window:CreateHeader()
         self:Destroy()
     end))
     
-    --// Minimize Button
     local minBtn = Instance.new("TextButton")
     minBtn.Name = "Minimize"
     minBtn.Size = UDim2.new(0, 30, 0, 30)
@@ -238,7 +228,6 @@ function NexusUI.Window:CreateSidebar()
     self.Sidebar.BorderSizePixel = 0
     self.Sidebar.Parent = self.MainFrame
     
-    --// Divider
     local divider = Instance.new("Frame")
     divider.Name = "Divider"
     divider.Size = UDim2.new(0, 1, 1, 0)
@@ -247,7 +236,6 @@ function NexusUI.Window:CreateSidebar()
     divider.BorderSizePixel = 0
     divider.Parent = self.Sidebar
     
-    --// Tab Container
     self.TabContainer = Instance.new("ScrollingFrame")
     self.TabContainer.Name = "TabContainer"
     self.TabContainer.Size = UDim2.new(1, -10, 1, -20)
@@ -262,6 +250,7 @@ function NexusUI.Window:CreateSidebar()
     local layout = Instance.new("UIListLayout")
     layout.Name = "Layout"
     layout.Padding = UDim.new(0, 8)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder  -- ВАЖНО: сортировка по LayoutOrder
     layout.Parent = self.TabContainer
     
     table.insert(self._connections, layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
@@ -315,6 +304,7 @@ function NexusUI.Window:AddTab(name, icon)
     tab.Window = self
     tab.Elements = {}
     tab._connections = {}
+    tab.Index = #self.Tabs + 1  -- Порядок создания
     
     --// Tab Button
     tab.Button = Instance.new("TextButton")
@@ -323,10 +313,10 @@ function NexusUI.Window:AddTab(name, icon)
     tab.Button.BackgroundColor3 = self.Config.Background
     tab.Button.Text = ""
     tab.Button.AutoButtonColor = false
+    tab.Button.LayoutOrder = tab.Index  -- ГАРАНТИРУЕТ ПОРЯДОК
     tab.Button.Parent = self.TabContainer
     CreateCorner(tab.Button, 8)
     
-    --// Icon
     local iconLabel = Instance.new("TextLabel")
     iconLabel.Name = "Icon"
     iconLabel.Size = UDim2.new(0, 30, 0, 30)
@@ -338,7 +328,6 @@ function NexusUI.Window:AddTab(name, icon)
     iconLabel.Font = Enum.Font.Gotham
     iconLabel.Parent = tab.Button
     
-    --// Text
     local textLabel = Instance.new("TextLabel")
     textLabel.Name = "Text"
     textLabel.Size = UDim2.new(1, -50, 1, 0)
@@ -351,7 +340,6 @@ function NexusUI.Window:AddTab(name, icon)
     textLabel.TextXAlignment = Enum.TextXAlignment.Left
     textLabel.Parent = tab.Button
     
-    --// Indicator
     tab.Indicator = Instance.new("Frame")
     tab.Indicator.Name = "Indicator"
     tab.Indicator.Size = UDim2.new(0, 3, 0, 0)
@@ -362,7 +350,6 @@ function NexusUI.Window:AddTab(name, icon)
     tab.Indicator.Parent = tab.Button
     CreateCorner(tab.Indicator, 2)
     
-    --// Content Frame
     tab.Content = Instance.new("ScrollingFrame")
     tab.Content.Name = tab.Name .. "Content"
     tab.Content.Size = UDim2.new(
@@ -397,12 +384,11 @@ function NexusUI.Window:AddTab(name, icon)
         end
     end))
     
-    --// Tab Selection Logic (ИСПРАВЛЕНО - используем MouseButton1Down)
-    table.insert(tab._connections, tab.Button.MouseButton1Down:Connect(function()
+    --// Tab Selection - ИСПРАВЛЕНО: используем MouseButton1Click
+    table.insert(tab._connections, tab.Button.MouseButton1Click:Connect(function()
         self:SelectTab(tab)
     end))
     
-    --// Hover Effects
     table.insert(tab._connections, tab.Button.MouseEnter:Connect(function()
         if self.ActiveTab ~= tab then
             Tween(tab.Button, {BackgroundColor3 = Color3.fromRGB(35, 35, 50)})
@@ -419,14 +405,17 @@ function NexusUI.Window:AddTab(name, icon)
     
     table.insert(self.Tabs, tab)
     
-    --// Auto-select first tab
-    if #self.Tabs == 1 then
-        task.delay(0.2, function()
-            self:SelectTab(tab)
+    --// ИСПРАВЛЕНО: Выбираем первую вкладку сразу, без задержки
+    if #self.Tabs == 1 and not self._firstTabSelected then
+        self._firstTabSelected = true
+        -- Небольшая задержка для инициализации UI
+        task.delay(0.05, function()
+            if tab.Button and tab.Button.Parent then
+                self:SelectTab(tab)
+            end
         end)
     end
     
-    --// Tab API
     local tabAPI = {}
     
     function tabAPI:AddToggle(text, default, callback)
@@ -434,8 +423,6 @@ function NexusUI.Window:AddTab(name, icon)
     end
     
     function tabAPI:AddSlider(text, min, max, default, step, callback)
-        --// Новый формат: text, min, max, default, [step], [callback]
-        --// Поддержка старого формата: text, min, max, default, callback
         local stepValue = 1
         local cb = callback
         
@@ -471,7 +458,6 @@ end
 function NexusUI.Window:SelectTab(tab)
     if not tab or self.ActiveTab == tab then return end
     
-    --// Deselect previous
     if self.ActiveTab then
         Tween(self.ActiveTab.Indicator, {Size = UDim2.new(0, 3, 0, 0)})
         Tween(self.ActiveTab.Button, {BackgroundColor3 = self.Config.Background})
@@ -487,7 +473,6 @@ function NexusUI.Window:SelectTab(tab)
         end
     end
     
-    --// Select new
     self.ActiveTab = tab
     Tween(tab.Indicator, {Size = UDim2.new(0, 3, 0.6, 0)}, {EasingStyle = Enum.EasingStyle.Back})
     Tween(tab.Button, {BackgroundColor3 = Color3.fromRGB(40, 40, 60)})
@@ -646,7 +631,6 @@ function NexusUI.Elements.Toggle(parent, text, default, callback)
     return toggle
 end
 
---// ИСПРАВЛЕННЫЙ СЛАЙДЕР С ШАГОМ
 function NexusUI.Elements.Slider(parent, text, min, max, default, step, callback)
     local slider = {}
     slider.Min = tonumber(min) or 0
@@ -655,9 +639,7 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, step, callback
     slider.Value = tonumber(default) or slider.Min
     slider.Callback = type(callback) == "function" and callback or function() end
     
-    --// Clamp value
     slider.Value = math.clamp(slider.Value, slider.Min, slider.Max)
-    --// Round to step
     slider.Value = math.floor((slider.Value - slider.Min) / slider.Step + 0.5) * slider.Step + slider.Min
     
     slider.Frame = Instance.new("Frame")
@@ -720,11 +702,9 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, step, callback
     slider.Thumb.Parent = track
     CreateCorner(slider.Thumb, 8)
     
-    --// Methods
     function slider:Set(value)
         value = tonumber(value) or slider.Min
         value = math.clamp(value, slider.Min, slider.Max)
-        --// Round to step
         value = math.floor((value - slider.Min) / slider.Step + 0.5) * slider.Step + slider.Min
         
         slider.Value = value
@@ -737,7 +717,6 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, step, callback
         slider.Callback(value)
     end
     
-    --// Dragging Logic
     local dragging = false
     
     local function update(input)
@@ -746,7 +725,6 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, step, callback
         
         local percent = math.clamp((input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
         local rawValue = slider.Min + (slider.Max - slider.Min) * percent
-        --// Round to step
         local steppedValue = math.floor((rawValue - slider.Min) / slider.Step + 0.5) * slider.Step + slider.Min
         steppedValue = math.clamp(steppedValue, slider.Min, slider.Max)
         
