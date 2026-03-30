@@ -1,5 +1,5 @@
---// NexusUI Library v2.0 (Stable)
---// Исправлены краши и ошибки
+--// NexusUI Library v2.1 (Fixed Tabs + Slider Step)
+--// Исправлены: переключение вкладок, добавлен шаг слайдера
 
 local NexusUI = {}
 NexusUI.__index = NexusUI
@@ -94,7 +94,7 @@ function NexusUI.Window.new(title, config)
     self.ActiveTab = nil
     self.Minimized = false
     self.Visible = true
-    self._connections = {} -- Store connections for cleanup
+    self._connections = {}
     
     --// Wait for PlayerGui
     local player = Players.LocalPlayer
@@ -148,7 +148,6 @@ function NexusUI.Window.new(title, config)
 end
 
 function NexusUI.Window:CreateHeader()
-    --// Header Frame
     self.Header = Instance.new("Frame")
     self.Header.Name = "Header"
     self.Header.Size = UDim2.new(1, 0, 0, self.Config.HeaderHeight)
@@ -231,7 +230,6 @@ function NexusUI.Window:CreateHeader()
 end
 
 function NexusUI.Window:CreateSidebar()
-    --// Sidebar Frame
     self.Sidebar = Instance.new("Frame")
     self.Sidebar.Name = "Sidebar"
     self.Sidebar.Size = UDim2.new(0, self.Config.SidebarWidth, 1, -self.Config.HeaderHeight)
@@ -266,7 +264,6 @@ function NexusUI.Window:CreateSidebar()
     layout.Padding = UDim.new(0, 8)
     layout.Parent = self.TabContainer
     
-    --// Auto update canvas size
     table.insert(self._connections, layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
         if self.TabContainer and self.TabContainer.Parent then
             self.TabContainer.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y)
@@ -394,15 +391,14 @@ function NexusUI.Window:AddTab(name, icon)
     padding.PaddingRight = UDim.new(0, 10)
     padding.Parent = tab.Content
     
-    --// Auto update canvas size
     table.insert(tab._connections, layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
         if tab.Content and tab.Content.Parent then
             tab.Content.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
         end
     end))
     
-    --// Tab Selection
-    table.insert(tab._connections, tab.Button.MouseButton1Click:Connect(function()
+    --// Tab Selection Logic (ИСПРАВЛЕНО - используем MouseButton1Down)
+    table.insert(tab._connections, tab.Button.MouseButton1Down:Connect(function()
         self:SelectTab(tab)
     end))
     
@@ -437,8 +433,20 @@ function NexusUI.Window:AddTab(name, icon)
         return NexusUI.Elements.Toggle(tab.Content, text, default, callback)
     end
     
-    function tabAPI:AddSlider(text, min, max, default, callback)
-        return NexusUI.Elements.Slider(tab.Content, text, min, max, default, callback)
+    function tabAPI:AddSlider(text, min, max, default, step, callback)
+        --// Новый формат: text, min, max, default, [step], [callback]
+        --// Поддержка старого формата: text, min, max, default, callback
+        local stepValue = 1
+        local cb = callback
+        
+        if type(step) == "number" then
+            stepValue = step
+        elseif type(step) == "function" then
+            cb = step
+            stepValue = 1
+        end
+        
+        return NexusUI.Elements.Slider(tab.Content, text, min, max, default, stepValue, cb)
     end
     
     function tabAPI:AddButton(text, callback)
@@ -470,8 +478,12 @@ function NexusUI.Window:SelectTab(tab)
         self.ActiveTab.Content.Visible = false
         
         local prevIcon = self.ActiveTab.Button:FindFirstChild("Icon")
+        local prevText = self.ActiveTab.Button:FindFirstChild("Text")
         if prevIcon then
             Tween(prevIcon, {TextColor3 = self.Config.TextDim})
+        end
+        if prevText then
+            Tween(prevText, {TextColor3 = self.Config.TextDim})
         end
     end
     
@@ -482,8 +494,12 @@ function NexusUI.Window:SelectTab(tab)
     tab.Content.Visible = true
     
     local newIcon = tab.Button:FindFirstChild("Icon")
+    local newText = tab.Button:FindFirstChild("Text")
     if newIcon then
         Tween(newIcon, {TextColor3 = self.Config.Accent})
+    end
+    if newText then
+        Tween(newText, {TextColor3 = self.Config.Text})
     end
 end
 
@@ -509,14 +525,12 @@ function NexusUI.Window:SetVisible(visible)
 end
 
 function NexusUI.Window:Destroy()
-    --// Disconnect all connections
     for _, conn in ipairs(self._connections) do
         if conn and conn.Disconnect then
             pcall(function() conn:Disconnect() end)
         end
     end
     
-    --// Disconnect tab connections
     for _, tab in ipairs(self.Tabs) do
         if tab._connections then
             for _, conn in ipairs(tab._connections) do
@@ -527,7 +541,6 @@ function NexusUI.Window:Destroy()
         end
     end
     
-    --// Destroy UI
     if self.ScreenGui then
         self.ScreenGui:Destroy()
     end
@@ -543,7 +556,6 @@ function NexusUI.Elements.Toggle(parent, text, default, callback)
     toggle.Value = default == true
     toggle.Callback = type(callback) == "function" and callback or function() end
     
-    --// Frame
     toggle.Frame = Instance.new("Frame")
     toggle.Frame.Name = tostring(text) .. "Toggle"
     toggle.Frame.Size = UDim2.new(1, 0, 0, 50)
@@ -553,7 +565,6 @@ function NexusUI.Elements.Toggle(parent, text, default, callback)
     CreateCorner(toggle.Frame, 10)
     CreateStroke(toggle.Frame, NexusUI.DefaultConfig.Border, 1)
     
-    --// Label
     local label = Instance.new("TextLabel")
     label.Name = "Label"
     label.Size = UDim2.new(1, -70, 0, 25)
@@ -566,7 +577,6 @@ function NexusUI.Elements.Toggle(parent, text, default, callback)
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.Parent = toggle.Frame
     
-    --// Status
     toggle.StatusLabel = Instance.new("TextLabel")
     toggle.StatusLabel.Name = "Status"
     toggle.StatusLabel.Size = UDim2.new(0, 50, 0, 20)
@@ -579,7 +589,6 @@ function NexusUI.Elements.Toggle(parent, text, default, callback)
     toggle.StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
     toggle.StatusLabel.Parent = toggle.Frame
     
-    --// Switch
     local switch = Instance.new("Frame")
     switch.Name = "Switch"
     switch.Size = UDim2.new(0, 50, 0, 26)
@@ -589,7 +598,6 @@ function NexusUI.Elements.Toggle(parent, text, default, callback)
     switch.Parent = toggle.Frame
     CreateCorner(switch, 13)
     
-    --// Knob
     toggle.Knob = Instance.new("Frame")
     toggle.Knob.Name = "Knob"
     toggle.Knob.Size = UDim2.new(0, 22, 0, 22)
@@ -599,7 +607,6 @@ function NexusUI.Elements.Toggle(parent, text, default, callback)
     toggle.Knob.Parent = switch
     CreateCorner(toggle.Knob, 11)
     
-    --// Click Area
     local clickArea = Instance.new("TextButton")
     clickArea.Name = "ClickArea"
     clickArea.Size = UDim2.new(1, 0, 1, 0)
@@ -607,7 +614,6 @@ function NexusUI.Elements.Toggle(parent, text, default, callback)
     clickArea.Text = ""
     clickArea.Parent = toggle.Frame
     
-    --// Methods
     function toggle:Set(value)
         toggle.Value = value == true
         toggle.StatusLabel.Text = toggle.Value and "ON" or "OFF"
@@ -625,7 +631,6 @@ function NexusUI.Elements.Toggle(parent, text, default, callback)
         toggle:Set(not toggle.Value)
     end
     
-    --// Events
     clickArea.MouseButton1Click:Connect(function()
         toggle:Toggle()
     end)
@@ -641,17 +646,20 @@ function NexusUI.Elements.Toggle(parent, text, default, callback)
     return toggle
 end
 
-function NexusUI.Elements.Slider(parent, text, min, max, default, callback)
+--// ИСПРАВЛЕННЫЙ СЛАЙДЕР С ШАГОМ
+function NexusUI.Elements.Slider(parent, text, min, max, default, step, callback)
     local slider = {}
     slider.Min = tonumber(min) or 0
     slider.Max = tonumber(max) or 100
+    slider.Step = tonumber(step) or 1
     slider.Value = tonumber(default) or slider.Min
     slider.Callback = type(callback) == "function" and callback or function() end
     
     --// Clamp value
     slider.Value = math.clamp(slider.Value, slider.Min, slider.Max)
+    --// Round to step
+    slider.Value = math.floor((slider.Value - slider.Min) / slider.Step + 0.5) * slider.Step + slider.Min
     
-    --// Frame
     slider.Frame = Instance.new("Frame")
     slider.Frame.Name = tostring(text) .. "Slider"
     slider.Frame.Size = UDim2.new(1, 0, 0, 70)
@@ -661,7 +669,6 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, callback)
     CreateCorner(slider.Frame, 10)
     CreateStroke(slider.Frame, NexusUI.DefaultConfig.Border, 1)
     
-    --// Label
     local label = Instance.new("TextLabel")
     label.Name = "Label"
     label.Size = UDim2.new(1, -80, 0, 25)
@@ -674,20 +681,18 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, callback)
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.Parent = slider.Frame
     
-    --// Value Display
     slider.ValueLabel = Instance.new("TextLabel")
     slider.ValueLabel.Name = "Value"
     slider.ValueLabel.Size = UDim2.new(0, 50, 0, 25)
     slider.ValueLabel.Position = UDim2.new(1, -65, 0, 5)
     slider.ValueLabel.BackgroundColor3 = NexusUI.DefaultConfig.Surface
-    slider.ValueLabel.Text = tostring(math.floor(slider.Value))
+    slider.ValueLabel.Text = tostring(slider.Value)
     slider.ValueLabel.TextColor3 = NexusUI.DefaultConfig.Accent
     slider.ValueLabel.TextSize = 12
     slider.ValueLabel.Font = Enum.Font.GothamBold
     slider.ValueLabel.Parent = slider.Frame
     CreateCorner(slider.ValueLabel, 4)
     
-    --// Track
     local track = Instance.new("Frame")
     track.Name = "Track"
     track.Size = UDim2.new(1, -30, 0, 6)
@@ -697,7 +702,6 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, callback)
     track.Parent = slider.Frame
     CreateCorner(track, 3)
     
-    --// Fill
     slider.Fill = Instance.new("Frame")
     slider.Fill.Name = "Fill"
     local percent = (slider.Value - slider.Min) / (slider.Max - slider.Min)
@@ -707,7 +711,6 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, callback)
     slider.Fill.Parent = track
     CreateCorner(slider.Fill, 3)
     
-    --// Thumb
     slider.Thumb = Instance.new("Frame")
     slider.Thumb.Name = "Thumb"
     slider.Thumb.Size = UDim2.new(0, 16, 0, 16)
@@ -721,8 +724,11 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, callback)
     function slider:Set(value)
         value = tonumber(value) or slider.Min
         value = math.clamp(value, slider.Min, slider.Max)
+        --// Round to step
+        value = math.floor((value - slider.Min) / slider.Step + 0.5) * slider.Step + slider.Min
+        
         slider.Value = value
-        slider.ValueLabel.Text = tostring(math.floor(value))
+        slider.ValueLabel.Text = tostring(slider.Value)
         
         local newPercent = (value - slider.Min) / (slider.Max - slider.Min)
         Tween(slider.Fill, {Size = UDim2.new(newPercent, 0, 1, 0)})
@@ -739,8 +745,12 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, callback)
         if not track.AbsoluteSize or track.AbsoluteSize.X == 0 then return end
         
         local percent = math.clamp((input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
-        local value = slider.Min + (slider.Max - slider.Min) * percent
-        slider:Set(value)
+        local rawValue = slider.Min + (slider.Max - slider.Min) * percent
+        --// Round to step
+        local steppedValue = math.floor((rawValue - slider.Min) / slider.Step + 0.5) * slider.Step + slider.Min
+        steppedValue = math.clamp(steppedValue, slider.Min, slider.Max)
+        
+        slider:Set(steppedValue)
     end
     
     slider.Thumb.InputBegan:Connect(function(input)
@@ -773,7 +783,6 @@ function NexusUI.Elements.Slider(parent, text, min, max, default, callback)
         end
     end)
     
-    --// Store connections for cleanup
     slider._connections = {inputEnded, inputChanged}
     
     return slider
@@ -783,7 +792,6 @@ function NexusUI.Elements.Button(parent, text, callback)
     local btn = {}
     btn.Callback = type(callback) == "function" and callback or function() end
     
-    --// Frame
     btn.Frame = Instance.new("TextButton")
     btn.Frame.Name = tostring(text) .. "Button"
     btn.Frame.Size = UDim2.new(1, 0, 0, 45)
@@ -797,7 +805,6 @@ function NexusUI.Elements.Button(parent, text, callback)
     CreateCorner(btn.Frame, 10)
     CreateStroke(btn.Frame, NexusUI.DefaultConfig.Accent, 1)
     
-    --// Hover & Click Effects
     btn.Frame.MouseEnter:Connect(function()
         Tween(btn.Frame, {BackgroundColor3 = NexusUI.DefaultConfig.Accent})
         btn.Frame.TextColor3 = NexusUI.DefaultConfig.Background
@@ -809,7 +816,6 @@ function NexusUI.Elements.Button(parent, text, callback)
     end)
     
     btn.Frame.MouseButton1Click:Connect(function()
-        --// Click Animation
         Tween(btn.Frame, {Size = UDim2.new(0.95, 0, 0, 45)}, {Duration = 0.1})
         task.delay(0.1, function()
             if btn.Frame and btn.Frame.Parent then
@@ -830,7 +836,6 @@ function NexusUI.Elements.Dropdown(parent, text, options, callback)
     dropdown.Callback = type(callback) == "function" and callback or function() end
     dropdown.Expanded = false
     
-    --// Frame
     dropdown.Frame = Instance.new("Frame")
     dropdown.Frame.Name = tostring(text) .. "Dropdown"
     dropdown.Frame.Size = UDim2.new(1, 0, 0, 50)
@@ -841,7 +846,6 @@ function NexusUI.Elements.Dropdown(parent, text, options, callback)
     CreateCorner(dropdown.Frame, 10)
     CreateStroke(dropdown.Frame, NexusUI.DefaultConfig.Border, 1)
     
-    --// Label
     local label = Instance.new("TextLabel")
     label.Name = "Label"
     label.Size = UDim2.new(1, -20, 0, 50)
@@ -854,7 +858,6 @@ function NexusUI.Elements.Dropdown(parent, text, options, callback)
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.Parent = dropdown.Frame
     
-    --// Selected Value
     dropdown.SelectedLabel = Instance.new("TextLabel")
     dropdown.SelectedLabel.Name = "Selected"
     dropdown.SelectedLabel.Size = UDim2.new(0, 120, 0, 30)
@@ -867,7 +870,6 @@ function NexusUI.Elements.Dropdown(parent, text, options, callback)
     dropdown.SelectedLabel.Parent = dropdown.Frame
     CreateCorner(dropdown.SelectedLabel, 6)
     
-    --// Arrow
     local arrow = Instance.new("TextLabel")
     arrow.Name = "Arrow"
     arrow.Size = UDim2.new(0, 20, 0, 30)
@@ -879,7 +881,6 @@ function NexusUI.Elements.Dropdown(parent, text, options, callback)
     arrow.Font = Enum.Font.Gotham
     arrow.Parent = dropdown.Frame
     
-    --// Options Container
     dropdown.OptionsFrame = Instance.new("Frame")
     dropdown.OptionsFrame.Name = "Options"
     dropdown.OptionsFrame.Size = UDim2.new(1, 0, 0, #dropdown.Options * 35)
@@ -892,7 +893,6 @@ function NexusUI.Elements.Dropdown(parent, text, options, callback)
     local layout = Instance.new("UIListLayout")
     layout.Parent = dropdown.OptionsFrame
     
-    --// Create Options
     for i, option in ipairs(dropdown.Options) do
         local optionBtn = Instance.new("TextButton")
         optionBtn.Name = tostring(option)
@@ -920,7 +920,6 @@ function NexusUI.Elements.Dropdown(parent, text, options, callback)
         end)
     end
     
-    --// Methods
     function dropdown:Set(value)
         dropdown.Selected = tostring(value)
         dropdown.SelectedLabel.Text = dropdown.Selected
@@ -954,7 +953,6 @@ function NexusUI.Elements.Dropdown(parent, text, options, callback)
         end
     end
     
-    --// Click Area
     local clickArea = Instance.new("TextButton")
     clickArea.Name = "ClickArea"
     clickArea.Size = UDim2.new(1, 0, 0, 50)
@@ -1055,7 +1053,6 @@ function NexusUI.Window:AddStats()
     stats.PingLabel.Font = Enum.Font.GothamBold
     stats.PingLabel.Parent = frame
     
-    --// Update Loop
     local fps = 0
     local lastUpdate = tick()
     
