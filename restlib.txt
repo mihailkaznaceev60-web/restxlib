@@ -1,253 +1,222 @@
-
+-- restxlib v0.2 — простая UI в стиле чит-клиента
 local RestXLib = {}
 RestXLib.__index = RestXLib
 
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
-local function createInstance(class, props)
-    local inst = Instance.new(class)
-    for prop, value in pairs(props or {}) do
-        inst[prop] = value
-    end
-    return inst
+local function create(class, props)
+	local inst = Instance.new(class)
+	for k, v in pairs(props or {}) do
+		inst[k] = v
+	end
+	return inst
 end
 
--- Основная функция создания окна
-function RestXLib:CreateWindow(title: string, accentColor: Color3?)
-    local self = setmetatable({}, RestXLib)
-    
-    accentColor = accentColor or Color3.fromRGB(170, 85, 255) -- фиолетовый по умолчанию
-    
-    -- Главный ScreenGui
-    local ScreenGui = createInstance("ScreenGui", {
-        Name = "RestXLib",
-        Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui"),
-        ResetOnSpawn = false,
-        ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    })
-    
-    -- Главное окно
-    local MainFrame = createInstance("Frame", {
-        Name = "Main",
-        Parent = ScreenGui,
-        Size = UDim2.new(0, 520, 0, 380),
-        Position = UDim2.new(0.5, -260, 0.5, -190),
-        BackgroundColor3 = Color3.fromRGB(20, 20, 25),
-        BorderSizePixel = 0
-    })
-    
-    local UICorner = createInstance("UICorner", {Parent = MainFrame, CornerRadius = UDim.new(0, 8)})
-    local UIStroke = createInstance("UIStroke", {Parent = MainFrame, Color = Color3.fromRGB(40, 40, 50), Thickness = 1})
-    
-    -- Заголовок (draggable)
-    local TitleBar = createInstance("Frame", {
-        Name = "TitleBar",
-        Parent = MainFrame,
-        Size = UDim2.new(1, 0, 0, 40),
-        BackgroundColor3 = Color3.fromRGB(15, 15, 20),
-        BorderSizePixel = 0
-    })
-    createInstance("UICorner", {Parent = TitleBar, CornerRadius = UDim.new(0, 8)})
-    
-    local TitleLabel = createInstance("TextLabel", {
-        Name = "Title",
-        Parent = TitleBar,
-        Size = UDim2.new(1, -100, 1, 0),
-        BackgroundTransparency = 1,
-        Text = "  " .. title,
-        TextColor3 = Color3.fromRGB(255, 255, 255),
-        TextXAlignment = Enum.TextXAlignment.Left,
-        Font = Enum.Font.GothamBold,
-        TextSize = 16
-    })
-    
-    -- Кнопка закрытия
-    local CloseButton = createInstance("TextButton", {
-        Name = "Close",
-        Parent = TitleBar,
-        Size = UDim2.new(0, 30, 0, 30),
-        Position = UDim2.new(1, -35, 0, 5),
-        BackgroundTransparency = 1,
-        Text = "✕",
-        TextColor3 = Color3.fromRGB(255, 80, 80),
-        TextSize = 18,
-        Font = Enum.Font.GothamBold
-    })
-    
-    -- Draggable
-    local dragging = false
-    local dragInput, dragStart, startPos
-    
-    TitleBar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            dragStart = input.Position
-            startPos = MainFrame.Position
-        end
-    end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local delta = input.Position - dragStart
-            MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
-    
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
-        end
-    end)
-    
-    CloseButton.MouseButton1Click:Connect(function()
-        ScreenGui:Destroy()
-    end)
-    
-    self.MainFrame = MainFrame
-    self.AccentColor = accentColor
-    self.Tabs = {}
-    
-    -- Контейнер для табов и контента
-    self.TabContainer = createInstance("Frame", {
-        Name = "TabContainer",
-        Parent = MainFrame,
-        Size = UDim2.new(1, 0, 1, -40),
-        Position = UDim2.new(0, 0, 0, 40),
-        BackgroundTransparency = 1
-    })
-    
-    return self
+function RestXLib:CreateWindow(title: string, accent: Color3?)
+	local self = setmetatable({}, RestXLib)
+	accent = accent or Color3.fromRGB(170, 85, 255)
+
+	local ScreenGui = create("ScreenGui", {
+		Name = "RestXLib",
+		Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui"),
+		ResetOnSpawn = false,
+	})
+
+	local Main = create("Frame", {
+		Name = "Main",
+		Parent = ScreenGui,
+		Size = UDim2.new(0, 560, 0, 400),
+		Position = UDim2.new(0.5, -280, 0.5, -200),
+		BackgroundColor3 = Color3.fromRGB(18, 18, 24),
+		BorderSizePixel = 0,
+	})
+
+	create("UICorner", {Parent = Main, CornerRadius = UDim.new(0, 10)})
+	create("UIStroke", {Parent = Main, Color = Color3.fromRGB(45, 45, 55), Thickness = 1.5})
+
+	-- Title Bar
+	local TitleBar = create("Frame", {
+		Parent = Main,
+		Size = UDim2.new(1, 0, 0, 42),
+		BackgroundColor3 = Color3.fromRGB(13, 13, 18),
+		BorderSizePixel = 0,
+	})
+
+	create("UICorner", {Parent = TitleBar, CornerRadius = UDim.new(0, 10)})
+
+	local TitleText = create("TextLabel", {
+		Parent = TitleBar,
+		Size = UDim2.new(1, -90, 1, 0),
+		BackgroundTransparency = 1,
+		Text = "  " .. title,
+		TextColor3 = Color3.new(1,1,1),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Font = Enum.Font.GothamBold,
+		TextSize = 17,
+	})
+
+	-- Close button
+	local CloseBtn = create("TextButton", {
+		Parent = TitleBar,
+		Size = UDim2.new(0, 32, 0, 32),
+		Position = UDim2.new(1, -38, 0, 5),
+		BackgroundTransparency = 1,
+		Text = "✕",
+		TextColor3 = Color3.fromRGB(255, 70, 70),
+		TextSize = 20,
+		Font = Enum.Font.GothamBold,
+	})
+
+	-- Dragging
+	local dragging, dragStart, startPos
+	TitleBar.InputBegan:Connect(function(inp)
+		if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = true
+			dragStart = inp.Position
+			startPos = Main.Position
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(inp)
+		if dragging and inp.UserInputType == Enum.UserInputType.MouseMovement then
+			local delta = inp.Position - dragStart
+			Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(inp)
+		if inp.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+	end)
+
+	CloseBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
+
+	self.Main = Main
+	self.Accent = accent
+	self.TabContainer = create("Frame", {Parent = Main, Size = UDim2.new(1,0,1,-42), Position = UDim2.new(0,0,0,42), BackgroundTransparency = 1})
+
+	return self
 end
 
--- Добавление таба
-function RestXLib:AddTab(tabName: string)
-    -- Здесь будет горизонтальная панель табов + Frame для контента
-    -- Для простоты сначала сделаем один видимый контейнер, потом добавим переключение
-    
-    local TabButton = createInstance("TextButton", {
-        Parent = self.TabContainer, -- позже сделаем отдельный TabBar
-        Size = UDim2.new(0, 100, 0, 30),
-        BackgroundColor3 = Color3.fromRGB(30, 30, 35),
-        Text = tabName,
-        TextColor3 = Color3.fromRGB(220, 220, 220),
-        Font = Enum.Font.Gotham,
-        TextSize = 14
-    })
-    createInstance("UICorner", {Parent = TabButton})
-    
-    local ContentFrame = createInstance("ScrollingFrame", {
-        Name = tabName .. "Content",
-        Parent = self.TabContainer,
-        Size = UDim2.new(1, 0, 1, 0),
-        BackgroundTransparency = 1,
-        ScrollBarThickness = 4,
-        BorderSizePixel = 0
-    })
-    
-    local UIListLayout = createInstance("UIListLayout", {
-        Parent = ContentFrame,
-        SortOrder = Enum.SortOrder.LayoutOrder,
-        Padding = UDim.new(0, 8)
-    })
-    
-    ContentFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-    UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        ContentFrame.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y + 20)
-    end)
-    
-    table.insert(self.Tabs, {Button = TabButton, Content = ContentFrame})
-    
-    -- Простое переключение (пока только последний таб видим)
-    for _, tab in ipairs(self.Tabs) do
-        tab.Content.Visible = false
-    end
-    ContentFrame.Visible = true
-    
-    return {
-        AddGroupbox = function(groupName)
-            local Group = createInstance("Frame", {
-                Parent = ContentFrame,
-                Size = UDim2.new(1, -20, 0, 40), -- авто-размер потом
-                BackgroundColor3 = Color3.fromRGB(25, 25, 30),
-                BorderSizePixel = 0
-            })
-            createInstance("UICorner", {Parent = Group, CornerRadius = UDim.new(0, 6)})
-            
-            local GroupTitle = createInstance("TextLabel", {
-                Parent = Group,
-                Size = UDim2.new(1, 0, 0, 30),
-                BackgroundTransparency = 1,
-                Text = "  " .. groupName,
-                TextColor3 = self.AccentColor,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                Font = Enum.Font.GothamBold,
-                TextSize = 15
-            })
-            
-            local GroupContent = createInstance("Frame", {
-                Parent = Group,
-                Size = UDim2.new(1, -10, 1, -35),
-                Position = UDim2.new(0, 5, 0, 35),
-                BackgroundTransparency = 1
-            })
-            
-            local List = createInstance("UIListLayout", {Parent = GroupContent, Padding = UDim.new(0, 6)})
-            
-            return {
-                AddToggle = function(name, default, callback)
-                    -- Реализация Toggle ниже
-                    local ToggleFrame = createInstance("Frame", {Parent = GroupContent, Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1})
-                    
-                    local ToggleLabel = createInstance("TextLabel", {
-                        Parent = ToggleFrame,
-                        Size = UDim2.new(0.7, 0, 1, 0),
-                        BackgroundTransparency = 1,
-                        Text = name,
-                        TextColor3 = Color3.fromRGB(255,255,255),
-                        TextXAlignment = Enum.TextXAlignment.Left
-                    })
-                    
-                    local ToggleButton = createInstance("TextButton", {
-                        Parent = ToggleFrame,
-                        Size = UDim2.new(0, 40, 0, 20),
-                        Position = UDim2.new(1, -50, 0.5, -10),
-                        BackgroundColor3 = default and self.AccentColor or Color3.fromRGB(50,50,55),
-                        Text = "",
-                        AutoButtonColor = false
-                    })
-                    createInstance("UICorner", {Parent = ToggleButton, CornerRadius = UDim.new(1,0)})
-                    
-                    local enabled = default
-                    
-                    ToggleButton.MouseButton1Click:Connect(function()
-                        enabled = not enabled
-                        TweenService:Create(ToggleButton, TweenInfo.new(0.2), {BackgroundColor3 = enabled and self.AccentColor or Color3.fromRGB(50,50,55)}):Play()
-                        if callback then callback(enabled) end
-                    end)
-                    
-                    return {Set = function(val) enabled = val; /* обновить цвет */ end}
-                end,
-                
-                AddButton = function(name, callback)
-                    local Btn = createInstance("TextButton", {
-                        Parent = GroupContent,
-                        Size = UDim2.new(1, 0, 0, 35),
-                        BackgroundColor3 = Color3.fromRGB(40,40,45),
-                        Text = name,
-                        TextColor3 = Color3.fromRGB(255,255,255),
-                        Font = Enum.Font.Gotham
-                    })
-                    createInstance("UICorner", {Parent = Btn})
-                    
-                    Btn.MouseButton1Click:Connect(callback or function() end)
-                end,
-                
-                -- Добавь сюда Slider, Label и т.д.
-            }
-        end
-    }
+function RestXLib:AddTab(name: string)
+	local TabButton = create("TextButton", { -- пока просто кнопка, позже сделаем нормальный таббар
+		Parent = self.TabContainer,
+		Size = UDim2.new(0, 120, 0, 35),
+		Position = UDim2.new(0, 10, 0, 10),
+		BackgroundColor3 = Color3.fromRGB(30, 30, 37),
+		Text = name,
+		TextColor3 = Color3.fromRGB(240,240,240),
+		Font = Enum.Font.GothamSemibold,
+		TextSize = 14,
+	})
+	create("UICorner", {Parent = TabButton, CornerRadius = UDim.new(0,6)})
+
+	local Content = create("ScrollingFrame", {
+		Parent = self.TabContainer,
+		Size = UDim2.new(1, -20, 1, -60),
+		Position = UDim2.new(0, 10, 0, 55),
+		BackgroundTransparency = 1,
+		ScrollBarThickness = 5,
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.new(0,0,0,0),
+	})
+
+	local Layout = create("UIListLayout", {
+		Parent = Content,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 10),
+	})
+
+	Content.CanvasSize = UDim2.new(0,0,0, Layout.AbsoluteContentSize.Y + 20)
+	Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		Content.CanvasSize = UDim2.new(0,0,0, Layout.AbsoluteContentSize.Y + 30)
+	end)
+
+	return {
+		AddGroupbox = function(self2, groupName: string)
+			local Group = create("Frame", {
+				Parent = Content,
+				Size = UDim2.new(1, 0, 0, 50),
+				BackgroundColor3 = Color3.fromRGB(24, 24, 30),
+				BorderSizePixel = 0,
+			})
+			create("UICorner", {Parent = Group, CornerRadius = UDim.new(0,8)})
+
+			create("TextLabel", {
+				Parent = Group,
+				Size = UDim2.new(1,0,0,28),
+				BackgroundTransparency = 1,
+				Text = "   " .. groupName,
+				TextColor3 = self.Accent,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Font = Enum.Font.GothamBold,
+				TextSize = 15,
+			})
+
+			local GroupContent = create("Frame", {
+				Parent = Group,
+				Size = UDim2.new(1, -16, 1, -34),
+				Position = UDim2.new(0, 8, 0, 30),
+				BackgroundTransparency = 1,
+			})
+
+			local GLayout = create("UIListLayout", {Parent = GroupContent, Padding = UDim.new(0,8)})
+
+			return {
+				AddToggle = function(_, toggleName: string, default: boolean, callback)
+					local enabled = default or false
+
+					local Toggle = create("Frame", {Parent = GroupContent, Size = UDim2.new(1,0,0,32), BackgroundTransparency = 1})
+
+					create("TextLabel", {
+						Parent = Toggle,
+						Size = UDim2.new(0.75, 0, 1, 0),
+						BackgroundTransparency = 1,
+						Text = toggleName,
+						TextColor3 = Color3.new(1,1,1),
+						TextXAlignment = Enum.TextXAlignment.Left,
+						Font = Enum.Font.Gotham,
+						TextSize = 14,
+					})
+
+					local Switch = create("TextButton", {
+						Parent = Toggle,
+						Size = UDim2.new(0, 46, 0, 24),
+						Position = UDim2.new(1, -55, 0.5, -12),
+						BackgroundColor3 = enabled and self.Accent or Color3.fromRGB(50,50,58),
+						Text = "",
+						AutoButtonColor = false,
+					})
+					create("UICorner", {Parent = Switch, CornerRadius = UDim.new(1,0)})
+
+					Switch.MouseButton1Click:Connect(function()
+						enabled = not enabled
+						TweenService:Create(Switch, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {
+							BackgroundColor3 = enabled and self.Accent or Color3.fromRGB(50,50,58)
+						}):Play()
+						if callback then callback(enabled) end
+					end)
+
+					return {Set = function(v) enabled = v; /* обновить цвет */ end}
+				end,
+
+				AddButton = function(_, btnName: string, callback)
+					local Btn = create("TextButton", {
+						Parent = GroupContent,
+						Size = UDim2.new(1,0,0,36),
+						BackgroundColor3 = Color3.fromRGB(40,40,48),
+						Text = btnName,
+						TextColor3 = Color3.new(1,1,1),
+						Font = Enum.Font.GothamSemibold,
+						TextSize = 14,
+					})
+					create("UICorner", {Parent = Btn, CornerRadius = UDim.new(0,6)})
+
+					Btn.MouseButton1Click:Connect(callback or function() end)
+				end,
+			}
+		end
+	}
 end
 
--- Пример использования в конце файла для теста
 return RestXLib
