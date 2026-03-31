@@ -1,4 +1,4 @@
--- restxlib by @твой_ник (простая UI-lib в стиле чит-клиента)
+
 local RestXLib = {}
 RestXLib.__index = RestXLib
 
