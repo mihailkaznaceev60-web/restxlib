@@ -1,5 +1,7 @@
 #!/bin/bash
 # 3X-UI Sub Creator | target: max.ru:443 | sni: max.ru
+# FIXED: settings/streamSettings as JSON strings
+
 H=158.160.224.229; P=38785; W=/Mnlj23dnFeI6Wj3Kch; U=I8nzGUt0j5; X=GU7e4w0Jt9
 B="https://$H:$P$W"; N="${1:-VPN}"; G="${2:-100}"; D="${3:-30}"
 T=$(awk "BEGIN{printf\"%.0f\",$G*1073741824}"); E=$(($(date +%s)+D*86400)); M=$((E*1000))
@@ -7,86 +9,110 @@ C=/tmp/xui_$$.txt; S=$(tr -dc a-z0-9 </dev/urandom | head -c16)
 E1="${N// /_}_$(tr -dc a-z0-9 </dev/urandom|head -c6)"
 
 echo "[DEBUG] HOST=$H PORT=$P"
-echo "[DEBUG] SUB_NAME=$N TOTAL_GB=$G DAYS=$D"
-echo "[DEBUG] TOTAL_BYTES=$T EXPIRE_TS=$E"
+echo "[DEBUG] SUB=$N GB=$G DAYS=$D BYTES=$T"
 
 # Auth
 echo "[DEBUG] Login..."
 R=$(curl -sk "$B/login" -H "Content-Type:application/x-www-form-urlencoded" -c "$C" --data-raw "username=$U&password=$X" --max-time 30)
-echo "[DEBUG] Login resp: $R"
+echo "[DEBUG] Login: $R"
 echo "$R" | grep -q success || { echo "[ERR] Auth failed"; exit 1; }
 echo "[OK] Auth"
 
 # UUID
-echo "[DEBUG] Getting UUID..."
+echo "[DEBUG] UUID..."
 V=$(curl -sk "$B/panel/api/server/getNewUUID" -b "$C" -c "$C" --max-time 30)
-echo "[DEBUG] UUID resp: $V"
 UUID=$(echo "$V" | grep -oP '"uuid":"\K[^"]+')
 [ -z "$UUID" ] && UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen || python3 -c "import uuid;print(uuid.uuid4())")
 echo "[OK] UUID=$UUID"
 
 # Reality keys
-echo "[DEBUG] Getting Reality keys..."
+echo "[DEBUG] Keys..."
 K=$(curl -sk "$B/panel/api/server/getNewX25519Cert" -b "$C" -c "$C" --max-time 30)
-echo "[DEBUG] Keys resp: ${K:0:200}..."
 RPRIV=$(echo "$K" | grep -oP '"privateKey":"\K[^"]+')
 RPUB=$(echo "$K" | grep -oP '"publicKey":"\K[^"]+')
 HID=$(tr -dc a-f0-9 </dev/urandom|head -c8)
 echo "[OK] Reality PK=${RPUB:0:20}..."
 
-# Helper
+# Helper: create inbound
+# settings and streamSettings MUST be JSON strings (escaped), not objects!
 ci(){
   local r="$1" p="$2" pr="$3" s="$4" st="$5"
-  echo "[DEBUG] Creating $r on port $p..."
-  local q=$(printf '{"up":0,"down":0,"total":0,"remark":"%s","enable":true,"expiryTime":0,"listen":"","port":%s,"protocol":"%s","settings":%s,"streamSettings":%s,"sniffing":{"enabled":true,"destOverride":["http","tls","quic","fakedns"],"metadataOnly":false,"routeOnly":false},"allocate":{"strategy":"always","refresh":5,"concurrency":3}}' "$r" "$p" "$pr" "$s" "$st")
-  echo "[DEBUG] Payload: ${q:0:100}..."
+  echo "[DEBUG] Creating $r @ $p..."
+  # Build payload with settings/streamSettings as STRING values
+  local q=$(python3 -c "
+import json
+payload = {
+  'up': 0, 'down': 0, 'total': 0,
+  'remark': '$r',
+  'enable': True,
+  'expiryTime': 0,
+  'listen': '',
+  'port': $p,
+  'protocol': '$pr',
+  'settings': json.dumps($s),
+  'streamSettings': json.dumps($st),
+  'sniffing': {'enabled': True, 'destOverride': ['http','tls','quic','fakedns'], 'metadataOnly': False, 'routeOnly': False},
+  'allocate': {'strategy': 'always', 'refresh': 5, 'concurrency': 3}
+}
+print(json.dumps(payload))
+")
+  echo "[DEBUG] Payload: ${q:0:120}..."
   local x=$(curl -sk "$B/panel/api/inbounds/add" -H "Content-Type:application/json" -b "$C" -c "$C" --data-raw "$q" --max-time 30)
-  echo "[DEBUG] Response: $x"
-  echo "$x" | grep -q success && echo "[OK] $r @$p" || echo "[ERR] $r failed: $x"
+  echo "[DEBUG] Resp: $x"
+  echo "$x" | grep -q '"success":true' && echo "[OK] $r @$p" || echo "[ERR] $r: $x"
 }
 
-# 10 inbounds
-ci "${N}-VLESS-TR" $((30000+RANDOM%10000)) vless \
-  "{\"clients\":[{\"id\":\"$UUID\",\"flow\":\"xtls-rprx-vision\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}],\"decryption\":\"none\",\"fallbacks\":[]}" \
-  "{\"network\":\"tcp\",\"security\":\"reality\",\"externalProxy\":[],\"realitySettings\":{\"show\":false,\"xver\":0,\"dest\":\"max.ru:443\",\"serverNames\":[\"max.ru\"],\"privateKey\":\"$RPRIV\",\"shortIds\":[\"$HID\"],\"settings\":{\"publicKey\":\"$RPUB\",\"fingerprint\":\"random\",\"serverName\":\"max.ru\",\"spiderX\":\"/\"}},\"tcpSettings\":{\"acceptProxyProtocol\":false,\"header\":{\"type\":\"none\"}}}"
+# 1. VLESS-TCP-Reality
+S1='{"clients":[{"id":"'$UUID'","flow":"xtls-rprx-vision","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}],"decryption":"none","fallbacks":[]}'
+ST1='{"network":"tcp","security":"reality","externalProxy":[],"realitySettings":{"show":false,"xver":0,"dest":"max.ru:443","serverNames":["max.ru"],"privateKey":"'$RPRIV'","shortIds":["'$HID'"],"settings":{"publicKey":"'$RPUB'","fingerprint":"random","serverName":"max.ru","spiderX":"/"}},"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}'
+ci "${N}-VLESS-TR" $((30000+RANDOM%10000)) vless "$S1" "$ST1"
 
-ci "${N}-VLESS-GR" $((30000+RANDOM%10000)) vless \
-  "{\"clients\":[{\"id\":\"$UUID\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}],\"decryption\":\"none\",\"fallbacks\":[]}" \
-  "{\"network\":\"grpc\",\"security\":\"reality\",\"externalProxy\":[],\"realitySettings\":{\"show\":false,\"xver\":0,\"dest\":\"max.ru:443\",\"serverNames\":[\"max.ru\"],\"privateKey\":\"$RPRIV\",\"shortIds\":[\"$HID\"],\"settings\":{\"publicKey\":\"$RPUB\",\"fingerprint\":\"random\",\"serverName\":\"max.ru\",\"spiderX\":\"/\"}},\"grpcSettings\":{\"serviceName\":\"grpc\"}}"
+# 2. VLESS-gRPC-Reality
+S2='{"clients":[{"id":"'$UUID'","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}],"decryption":"none","fallbacks":[]}'
+ST2='{"network":"grpc","security":"reality","externalProxy":[],"realitySettings":{"show":false,"xver":0,"dest":"max.ru:443","serverNames":["max.ru"],"privateKey":"'$RPRIV'","shortIds":["'$HID'"],"settings":{"publicKey":"'$RPUB'","fingerprint":"random","serverName":"max.ru","spiderX":"/"}},"grpcSettings":{"serviceName":"grpc"}}'
+ci "${N}-VLESS-GR" $((30000+RANDOM%10000)) vless "$S2" "$ST2"
 
-ci "${N}-VLESS-TT" $((30000+RANDOM%10000)) vless \
-  "{\"clients\":[{\"id\":\"$UUID\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}],\"decryption\":\"none\",\"fallbacks\":[]}" \
-  "{\"network\":\"tcp\",\"security\":\"tls\",\"externalProxy\":[],\"tlsSettings\":{\"serverName\":\"max.ru\"},\"tcpSettings\":{\"acceptProxyProtocol\":false,\"header\":{\"type\":\"none\"}}}"
+# 3. VLESS-TCP-TLS
+S3='{"clients":[{"id":"'$UUID'","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}],"decryption":"none","fallbacks":[]}'
+ST3='{"network":"tcp","security":"tls","externalProxy":[],"tlsSettings":{"serverName":"max.ru"},"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}'
+ci "${N}-VLESS-TT" $((30000+RANDOM%10000)) vless "$S3" "$ST3"
 
-ci "${N}-VLESS-WT" $((30000+RANDOM%10000)) vless \
-  "{\"clients\":[{\"id\":\"$UUID\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}],\"decryption\":\"none\",\"fallbacks\":[]}" \
-  "{\"network\":\"ws\",\"security\":\"tls\",\"externalProxy\":[],\"tlsSettings\":{\"serverName\":\"max.ru\"},\"wsSettings\":{\"path\":\"/ws\",\"headers\":{\"Host\":\"max.ru\"}}}"
+# 4. VLESS-WS-TLS
+S4='{"clients":[{"id":"'$UUID'","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}],"decryption":"none","fallbacks":[]}'
+ST4='{"network":"ws","security":"tls","externalProxy":[],"tlsSettings":{"serverName":"max.ru"},"wsSettings":{"path":"/ws","headers":{"Host":"max.ru"}}}'
+ci "${N}-VLESS-WT" $((30000+RANDOM%10000)) vless "$S4" "$ST4"
 
-ci "${N}-VLESS-HT" $((30000+RANDOM%10000)) vless \
-  "{\"clients\":[{\"id\":\"$UUID\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}],\"decryption\":\"none\",\"fallbacks\":[]}" \
-  "{\"network\":\"httpupgrade\",\"security\":\"tls\",\"externalProxy\":[],\"tlsSettings\":{\"serverName\":\"max.ru\"},\"httpupgradeSettings\":{\"path\":\"/hu\",\"host\":\"max.ru\"}}"
+# 5. VLESS-HTTPUpgrade-TLS
+S5='{"clients":[{"id":"'$UUID'","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}],"decryption":"none","fallbacks":[]}'
+ST5='{"network":"httpupgrade","security":"tls","externalProxy":[],"tlsSettings":{"serverName":"max.ru"},"httpupgradeSettings":{"path":"/hu","host":"max.ru"}}'
+ci "${N}-VLESS-HT" $((30000+RANDOM%10000)) vless "$S5" "$ST5"
 
-ci "${N}-SS-TCP" $((30000+RANDOM%10000)) shadowsocks \
-  "{\"method\":\"aes-256-gcm\",\"password\":\"$UUID\",\"network\":\"tcp,udp\"}" \
-  "{\"network\":\"tcp\",\"security\":\"none\",\"externalProxy\":[],\"tcpSettings\":{\"acceptProxyProtocol\":false,\"header\":{\"type\":\"none\"}}}"
+# 6. Shadowsocks-TCP
+S6='{"method":"aes-256-gcm","password":"'$UUID'","network":"tcp,udp"}'
+ST6='{"network":"tcp","security":"none","externalProxy":[],"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}'
+ci "${N}-SS-TCP" $((30000+RANDOM%10000)) shadowsocks "$S6" "$ST6"
 
-ci "${N}-SS-TLS" $((30000+RANDOM%10000)) shadowsocks \
-  "{\"method\":\"aes-256-gcm\",\"password\":\"$UUID\",\"network\":\"tcp,udp\"}" \
-  "{\"network\":\"tcp\",\"security\":\"tls\",\"externalProxy\":[],\"tlsSettings\":{\"serverName\":\"max.ru\"},\"tcpSettings\":{\"acceptProxyProtocol\":false,\"header\":{\"type\":\"none\"}}}"
+# 7. Shadowsocks-TCP-TLS
+S7='{"method":"aes-256-gcm","password":"'$UUID'","network":"tcp,udp"}'
+ST7='{"network":"tcp","security":"tls","externalProxy":[],"tlsSettings":{"serverName":"max.ru"},"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}'
+ci "${N}-SS-TLS" $((30000+RANDOM%10000)) shadowsocks "$S7" "$ST7"
 
-ci "${N}-TRJAN" $((30000+RANDOM%10000)) trojan \
-  "{\"clients\":[{\"password\":\"$UUID\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}],\"fallbacks\":[]}" \
-  "{\"network\":\"tcp\",\"security\":\"tls\",\"externalProxy\":[],\"tlsSettings\":{\"serverName\":\"max.ru\"},\"tcpSettings\":{\"acceptProxyProtocol\":false,\"header\":{\"type\":\"none\"}}}"
+# 8. Trojan-TCP-TLS
+S8='{"clients":[{"password":"'$UUID'","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}],"fallbacks":[]}'
+ST8='{"network":"tcp","security":"tls","externalProxy":[],"tlsSettings":{"serverName":"max.ru"},"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}'
+ci "${N}-TRJAN" $((30000+RANDOM%10000)) trojan "$S8" "$ST8"
 
-ci "${N}-VM-TCP" $((30000+RANDOM%10000)) vmess \
-  "{\"clients\":[{\"id\":\"$UUID\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}]}" \
-  "{\"network\":\"tcp\",\"security\":\"tls\",\"externalProxy\":[],\"tlsSettings\":{\"serverName\":\"max.ru\"},\"tcpSettings\":{\"acceptProxyProtocol\":false,\"header\":{\"type\":\"none\"}}}"
+# 9. VMess-TCP-TLS
+S9='{"clients":[{"id":"'$UUID'","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}]}'
+ST9='{"network":"tcp","security":"tls","externalProxy":[],"tlsSettings":{"serverName":"max.ru"},"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}'
+ci "${N}-VM-TCP" $((30000+RANDOM%10000)) vmess "$S9" "$ST9"
 
-ci "${N}-VM-WS" $((30000+RANDOM%10000)) vmess \
-  "{\"clients\":[{\"id\":\"$UUID\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}]}" \
-  "{\"network\":\"ws\",\"security\":\"tls\",\"externalProxy\":[],\"tlsSettings\":{\"serverName\":\"max.ru\"},\"wsSettings\":{\"path\":\"/ws\",\"headers\":{\"Host\":\"max.ru\"}}}"
+# 10. VMess-WS-TLS
+S10='{"clients":[{"id":"'$UUID'","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}]}'
+ST10='{"network":"ws","security":"tls","externalProxy":[],"tlsSettings":{"serverName":"max.ru"},"wsSettings":{"path":"/ws","headers":{"Host":"max.ru"}}}'
+ci "${N}-VM-WS" $((30000+RANDOM%10000)) vmess "$S10" "$ST10"
 
-# Sub output
+# Subscription
 SUB="https://$H:$P$W/sub/$S"
 F="${N// /_}_sub.txt"
 echo -e "#profile-title: $N\n#profile-update-interval: 1\n#subscription-userinfo: upload=0; download=0; total=$T; expire=$E" > "$F"
@@ -103,7 +129,7 @@ echo "vmess://$(echo -n '{"v":"2","ps":"'${N}-VM-WS'","add":"'$H'","port":"'$((3
 
 echo ""
 echo "[OK] Sub URL: $SUB"
-echo "[OK] Saved: $F"
+echo "[OK] File: $F"
 echo ""
 cat "$F"
 rm -f "$C"
