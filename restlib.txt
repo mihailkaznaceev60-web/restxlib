@@ -123,7 +123,11 @@ local function scanBP()
             itembtn.Text = item.Name
             itembtn.Size = UDim2.new(buttonWidth, 0, buttonHeight, 0)
             itembtn.Position = UDim2.new(posX, 0, posY, 0)
-            itembtn.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+            if item:GetAttribute("Locked") == true then
+                itembtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+            else
+                itembtn.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+            end
             itembtn.TextColor3 = Color3.fromRGB(0, 0, 0)
             itembtn.TextScaled = true
             
