@@ -44,13 +44,6 @@ ci(){
   echo "[DEBUG] Resp: $x"
   echo "$x" | grep -q '"success":true' && echo "[OK] $r @$p" || echo "[ERR] $r: $x"
 }
-print(json.dumps(payload))
-")
-  echo "[DEBUG] Payload: ${q:0:120}..."
-  local x=$(curl -sk "$B/panel/api/inbounds/add" -H "Content-Type:application/json" -b "$C" -c "$C" --data-raw "$q" --max-time 30)
-  echo "[DEBUG] Resp: $x"
-  echo "$x" | grep -q '"success":true' && echo "[OK] $r @$p" || echo "[ERR] $r: $x"
-}
 
 # 1. VLESS-TCP-Reality
 S1='{"clients":[{"id":"'$UUID'","flow":"xtls-rprx-vision","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}],"decryption":"none","fallbacks":[]}'
