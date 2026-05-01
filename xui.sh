@@ -36,6 +36,7 @@ echo "[OK] Reality PK=${RPUB:0:20}..."
 # Helper: create inbound
 # settings and streamSettings MUST be JSON strings (escaped), not objects!
 # УДАЛИТЬ весь python3 блок, заменить на:
+# УДАЛИТЬ весь python3 блок, заменить на:
 ci(){
   local r="$1" p="$2" pr="$3" s="$4" st="$5"
   echo "[DEBUG] Creating $r @ $p..."
@@ -46,7 +47,6 @@ ci(){
   echo "[DEBUG] Resp: $x"
   echo "$x" | grep -q '"success":true' && echo "[OK] $r @$p" || echo "[ERR] $r: $x"
 }
-print(json.dumps(payload))
 ")
   echo "[DEBUG] Payload: ${q:0:120}..."
   local x=$(curl -sk "$B/panel/api/inbounds/add" -H "Content-Type:application/json" -b "$C" -c "$C" --data-raw "$q" --max-time 30)
