@@ -1,6 +1,212 @@
-#!/bin/bash
+
+# Read the uploaded script and rewrite it with proper JSON handling
+with open('/mnt/agents/upload/user_pasted_clipboard_long_content_as_file_#!binbash # 3X-UI(2).txt', 'r') as f:
+    original = f.read()
+
+# Build the corrected script
+script = '''#!/bin/bash
 # 3X-UI Sub Creator | target: max.ru:443 | sni: max.ru
-# FIXED: settings/streamSettings as JSON strings
+# FIXED v2: settings/streamSettings as proper JSON objects (NOT strings)
+# DeepSeek обосрался трижды — передавал JSON как строки в кавычках, 3X-UI ожидает объекты.
+# Ошибка была: "settings":"{...}" → правильно: "settings":{...}
+
+H=158.160.224.229; P=38785; W=/Mnlj23dnFeI6Wj3Kch; U=I8nzGUt0j5; X=GU7e4w0Jt9
+B="https://$H:$P$W"; N="${1:-VPN}"; G="${2:-100}"; D="${3:-30}"
+T=$(awk "BEGIN{printf\\"%.0f\\",$G*1073741824}"); E=$(($(date +%s)+D*86400)); M=$((E*1000))
+C=/tmp/xui_$$.txt; S=$(tr -dc a-z0-9 </dev/urandom | head -c16)
+E1="${N// /_}_$(tr -dc a-z0-9 </dev/urandom|head -c6)"
+
+echo "[DEBUG] HOST=$H PORT=$P"
+echo "[DEBUG] SUB=$N GB=$G DAYS=$D BYTES=$T"
+
+# Auth
+echo "[DEBUG] Login..."
+R=$(curl -sk "$B/login" -H "Content-Type:application/x-www-form-urlencoded" -c "$C" --data-raw "username=$U&password=$X" --max-time 30)
+echo "[DEBUG] Login: $R"
+echo "$R" | grep -q success || { echo "[ERR] Auth failed"; exit 1; }
+echo "[OK] Auth"
+
+# UUID
+echo "[DEBUG] UUID..."
+V=$(curl -sk "$B/panel/api/server/getNewUUID" -b "$C" -c "$C" --max-time 30)
+UUID=$(echo "$V" | grep -oP '"uuid":"\\K[^"]+')
+[ -z "$UUID" ] && UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen || python3 -c "import uuid;print(uuid.uuid4())")
+echo "[OK] UUID=$UUID"
+
+# Reality keys
+echo "[DEBUG] Keys..."
+K=$(curl -sk "$B/panel/api/server/getNewX25519Cert" -b "$C" -c "$C" --max-time 30)
+RPRIV=$(echo "$K" | grep -oP '"privateKey":"\\K[^"]+')
+RPUB=$(echo "$K" | grep -oP '"publicKey":"\\K[^"]+')
+HID=$(tr -dc a-f0-9 </dev/urandom|head -c8)
+echo "[OK] Reality PK=${RPUB:0:20}..."
+
+# Helper: create inbound
+# settings и streamSettings — чистые JSON-объекты, без обёртки в строку!
+ci(){
+  local r="$1" p="$2" pr="$3" s="$4" st="$5"
+  echo "[DEBUG] Creating $r @ $p..."
+  local q="{\\"up\\":0,\\"down\\":0,\\"total\\":0,\\"remark\\":\\"$r\\",\\"enable\\":true,\\"expiryTime\\":0,\\"listen\\":\\"\\",\\"port\\":$p,\\"protocol\\":\\"$pr\\",\\"settings\\":$s,\\"streamSettings\\":$st}"
+  echo "[DEBUG] Payload: ${q:0:120}..."
+  local x=$(curl -sk "$B/panel/api/inbounds/add" -H "Content-Type:application/json" -b "$C" -c "$C" --data-raw "$q" --max-time 30)
+  echo "[DEBUG] Resp: $x"
+  echo "$x" | grep -q '"success":true' && echo "[OK] $r @$p" || echo "[ERR] $r: $x"
+}
+
+# 1. VLESS-TCP-Reality
+S1="{\\"clients\\":[{\\"id\\":\\"$UUID\\",\\"flow\\":\\"xtls-rprx-vision\\",\\"email\\":\\"$E1\\",\\"limitIp\\":0,\\"totalGB\\":$T,\\"expiryTime\\":$M,\\"enable\\":true,\\"subId\\":\\"$S\\"}],\\"decryption\\":\\"none\\",\\"fallbacks\\":[]}"
+ST1="{\\"network\\":\\"tcp\\",\\"security\\":\\"reality\\",\\"externalProxy\\":[],\\"realitySettings\\":{\\"show\\":false,\\"xver\\":0,\\"dest\\":\\"max.ru:443\\",\\"serverNames\\":[\\"max.ru\\"],\\"privateKey\\":\\"$RPRIV\\",\\"shortIds\\":[\\"$HID\\"],\\"settings\\":{\\"publicKey\\":\\"$RPUB\\",\\"fingerprint\\":\\"random\\",\\"serverName\\":\\"max.ru\\",\\"spiderX\\":\\"/\\"}},\\"tcpSettings\\":{\\"acceptProxyProtocol\\":false,\\"header\\":{\\"type\\":\\"none\\"}}}"
+ci "${N}-VLESS-TR" $((30000+RANDOM%10000)) vless "$S1" "$ST1"
+
+# 2. VLESS-gRPC-Reality
+S2="{\\"clients\\":[{\\"id\\":\\"$UUID\\",\\"email\\":\\"$E1\\",\\"limitIp\\":0,\\"totalGB\\":$T,\\"expiryTime\\":$M,\\"enable\\":true,\\"subId\\":\\"$S\\"}],\\"decryption\\":\\"none\\",\\"fallbacks\\":[]}"
+ST2="{\\"network\\":\\"grpc\\",\\"security\\":\\"reality\\",\\"externalProxy\\":[],\\"realitySettings\\":{\\"show\\":false,\\"xver\\":0,\\"dest\\":\\"max.ru:443\\",\\"serverNames\\":[\\"max.ru\\"],\\"privateKey\\":\\"$RPRIV\\",\\"shortIds\\":[\\"$HID\\"],\\"settings\\":{\\"publicKey\\":\\"$RPUB\\",\\"fingerprint\\":\\"random\\",\\"serverName\\":\\"max.ru\\",\\"spiderX\\":\\"/\\"}},\\"grpcSettings\\":{\\"serviceName\\":\\"grpc\\"}}"
+ci "${N}-VLESS-GR" $((30000+RANDOM%10000)) vless "$S2" "$ST2"
+
+# 3. VLESS-TCP-TLS
+S3="{\\"clients\\":[{\\"id\\":\\"$UUID\\",\\"email\\":\\"$E1\\",\\"limitIp\\":0,\\"totalGB\\":$T,\\"expiryTime\\":$M,\\"enable\\":true,\\"subId\\":\\"$S\\"}],\\"decryption\\":\\"none\\",\\"fallbacks\\":[]}"
+ST3="{\\"network\\":\\"tcp\\",\\"security\\":\\"tls\\",\\"externalProxy\\":[],\\"tlsSettings\\":{\\"serverName\\":\\"max.ru\\"},\\"tcpSettings\\":{\\"acceptProxyProtocol\\":false,\\"header\\":{\\"type\\":\\"none\\"}}}"
+ci "${N}-VLESS-TT" $((30000+RANDOM%10000)) vless "$S3" "$ST3"
+
+# 4. VLESS-WS-TLS
+S4="{\\"clients\\":[{\\"id\\":\\"$UUID\\",\\"email\\":\\"$E1\\",\\"limitIp\\":0,\\"totalGB\\":$T,\\"expiryTime\\":$M,\\"enable\\":true,\\"subId\\":\\"$S\\"}],\\"decryption\\":\\"none\\",\\"fallbacks\\":[]}"
+ST4="{\\"network\\":\\"ws\\",\\"security\\":\\"tls\\",\\"externalProxy\\":[],\\"tlsSettings\\":{\\"serverName\\":\\"max.ru\\"},\\"wsSettings\\":{\\"path\\":\\"/ws\\",\\"headers\\":{\\"Host\\":\\"max.ru\\"}}}"
+ci "${N}-VLESS-WT" $((30000+RANDOM%10000)) vless "$S4" "$ST4"
+
+# 5. VLESS-HTTPUpgrade-TLS
+S5="{\\"clients\\":[{\\"id\\":\\"$UUID\\",\\"email\\":\\"$E1\\",\\"limitIp\\":0,\\"totalGB\\":$T,\\"expiryTime\\":$M,\\"enable\\":true,\\"subId\\":\\"$S\\"}],\\"decryption\\":\\"none\\",\\"fallbacks\\":[]}"
+ST5="{\\"network\\":\\"httpupgrade\\",\\"security\\":\\"tls\\",\\"externalProxy\\":[],\\"tlsSettings\\":{\\"serverName\\":\\"max.ru\\"},\\"httpupgradeSettings\\":{\\"path\\":\\"/hu\\",\\"host\\":\\"max.ru\\"}}}"
+ci "${N}-VLESS-HT" $((30000+RANDOM%10000)) vless "$S5" "$ST5"
+
+# 6. Shadowsocks-TCP
+S6="{\\"method\\":\\"aes-256-gcm\\",\\"password\\":\\"$UUID\\",\\"network\\":\\"tcp,udp\\"}"
+ST6="{\\"network\\":\\"tcp\\",\\"security\\":\\"none\\",\\"externalProxy\\":[],\\"tcpSettings\\":{\\"acceptProxyProtocol\\":false,\\"header\\":{\\"type\\":\\"none\\"}}}"
+ci "${N}-SS-TCP" $((30000+RANDOM%10000)) shadowsocks "$S6" "$ST6"
+
+# 7. Shadowsocks-TCP-TLS
+S7="{\\"method\\":\\"aes-256-gcm\\",\\"password\\":\\"$UUID\\",\\"network\\":\\"tcp,udp\\"}"
+ST7="{\\"network\\":\\"tcp\\",\\"security\\":\\"tls\\",\\"externalProxy\\":[],\\"tlsSettings\\":{\\"serverName\\":\\"max.ru\\"},\\"tcpSettings\\":{\\"acceptProxyProtocol\\":false,\\"header\\":{\\"type\\":\\"none\\"}}}"
+ci "${N}-SS-TLS" $((30000+RANDOM%10000)) shadowsocks "$S7" "$ST7"
+
+# 8. Trojan-TCP-TLS
+S8="{\\"clients\\":[{\\"password\\":\\"$UUID\\",\\"email\\":\\"$E1\\",\\"limitIp\\":0,\\"totalGB\\":$T,\\"expiryTime\\":$M,\\"enable\\":true,\\"subId\\":\\"$S\\"}],\\"fallbacks\\":[]}"
+ST8="{\\"network\\":\\"tcp\\",\\"security\\":\\"tls\\",\\"externalProxy\\":[],\\"tlsSettings\\":{\\"serverName\\":\\"max.ru\\"},\\"tcpSettings\\":{\\"acceptProxyProtocol\\":false,\\"header\\":{\\"type\\":\\"none\\"}}}"
+ci "${N}-TRJAN" $((30000+RANDOM%10000)) trojan "$S8" "$ST8"
+
+# 9. VMess-TCP-TLS
+S9="{\\"clients\\":[{\\"id\\":\\"$UUID\\",\\"email\\":\\"$E1\\",\\"limitIp\\":0,\\"totalGB\\":$T,\\"expiryTime\\":$M,\\"enable\\":true,\\"subId\\":\\"$S\\"}]}"
+ST9="{\\"network\\":\\"tcp\\",\\"security\\":\\"tls\\",\\"externalProxy\\":[],\\"tlsSettings\\":{\\"serverName\\":\\"max.ru\\"},\\"tcpSettings\\":{\\"acceptProxyProtocol\\":false,\\"header\\":{\\"type\\":\\"none\\"}}}"
+ci "${N}-VM-TCP" $((30000+RANDOM%10000)) vmess "$S9" "$ST9"
+
+# 10. VMess-WS-TLS
+S10="{\\"clients\\":[{\\"id\\":\\"$UUID\\",\\"email\\":\\"$E1\\",\\"limitIp\\":0,\\"totalGB\\":$T,\\"expiryTime\\":$M,\\"enable\\":true,\\"subId\\":\\"$S\\"}]}"
+ST10="{\\"network\\":\\"ws\\",\\"security\\":\\"tls\\",\\"externalProxy\\":[],\\"tlsSettings\\":{\\"serverName\\":\\"max.ru\\"},\\"wsSettings\\":{\\"path\\":\\"/ws\\",\\"headers\\":{\\"Host\\":\\"max.ru\\"}}}"
+ci "${N}-VM-WS" $((30000+RANDOM%10000)) vmess "$S10" "$ST10"
+
+# Subscription
+SUB="https://$H:$P$W/sub/$S"
+F="${N// /_}_sub.txt"
+echo -e "#profile-title: $N\\n#profile-update-interval: 1\\n#subscription-userinfo: upload=0; download=0; total=$T; expire=$E" > "$F"
+echo "vless://$UUID@$H:$((30000+RANDOM%10000))?type=tcp&security=reality&flow=xtls-rprx-vision&pbk=$RPUB&fp=random&sni=max.ru&sid=$HID&spx=%2F#${N}-VLESS-TR" >> "$F"
+echo "vless://$UUID@$H:$((30000+RANDOM%10000))?type=grpc&security=reality&pbk=$RPUB&fp=random&sni=max.ru&sid=$HID&spx=%2F&serviceName=grpc#${N}-VLESS-GR" >> "$F"
+echo "vless://$UUID@$H:$((30000+RANDOM%10000))?type=tcp&security=tls&sni=max.ru#${N}-VLESS-TT" >> "$F"
+echo "vless://$UUID@$H:$((30000+RANDOM%10000))?type=ws&security=tls&path=%2Fws&host=$H&sni=max.ru#${N}-VLESS-WT" >> "$F"
+echo "vless://$UUID@$H:$((30000+RANDOM%10000))?type=httpupgrade&security=tls&path=%2Fhu&host=max.ru&sni=max.ru#${N}-VLESS-HT" >> "$F"
+echo "ss://$(echo -n aes-256-gcm:$UUID|base64|tr -d '=\\n')@$H:$((30000+RANDOM%10000))#${N}-SS-TCP" >> "$F"
+echo "ss://$(echo -n aes-256-gcm:$UUID|base64|tr -d '=\\n')@$H:$((30000+RANDOM%10000))#${N}-SS-TLS" >> "$F"
+echo "trojan://$UUID@$H:$((30000+RANDOM%10000))?security=tls&sni=max.ru&type=tcp#${N}-TRJAN" >> "$F"
+echo "vmess://$(echo -n '{\\"v\\":\\"2\\",\\"ps\\":\\"'${N}-VM-TCP'\\",\\"add\\":\\"'$H'\\",\\"port\\":\\"'$((30000+RANDOM%10000))'\\",\\"id\\":\\"'$UUID'\\",\\"aid\\":\\"0\\",\\"scy\\":\\"auto\\",\\"net\\":\\"tcp\\",\\"type\\":\\"none\\",\\"tls\\":\\"tls\\",\\"sni\\":\\"max.ru\\"}'|base64|tr -d '=\\n')" >> "$F"
+echo "vmess://$(echo -n '{\\"v\\":\\"2\\",\\"ps\\":\\"'${N}-VM-WS'\\",\\"add\\":\\"'$H'\\",\\"port\\":\\"'$((30000+RANDOM%10000))'\\",\\"id\\":\\"'$UUID'\\",\\"aid\\":\\"0\\",\\"scy\\":\\"auto\\",\\"net\\":\\"ws\\",\\"type\\":\\"none\\",\\"tls\\":\\"tls\\",\\"sni\\":\\"max.ru\\"}'|base64|tr -d '=\\n')" >> "$F"
+
+echo ""
+echo "[OK] Sub URL: $SUB"
+echo "[OK] File: $F"
+echo ""
+cat "$F"
+rm -f "$C"
+'''
+
+# Fix the double-escaping that happened during string construction
+# The script above has \\" which is wrong — should be \"
+import re
+
+# Actually let me build it properly
+# In the final file, we need literal backslash-quote: \"
+# In Python string, that means we write \\"
+# But in the script above I over-escaped. Let me rewrite cleanly.
+
+# Better approach: build the script line by line
+lines = []
+
+lines.append('#!/bin/bash')
+lines.append('# 3X-UI Sub Creator | target: max.ru:443 | sni: max.ru')
+lines.append('# FIXED v2: settings/streamSettings as proper JSON objects (NOT strings)')
+lines.append('# DeepSeek обосрался трижды — передавал JSON как строки в кавычках, 3X-UI ожидает объекты.')
+lines.append('# Ошибка была: "settings":"{...}" → правильно: "settings":{...}')
+lines.append('')
+lines.append('H=158.160.224.229; P=38785; W=/Mnlj23dnFeI6Wj3Kch; U=I8nzGUt0j5; X=GU7e4w0Jt9')
+lines.append('B="https://$H:$P$W"; N="${1:-VPN}"; G="${2:-100}"; D="${3:-30}"')
+lines.append('T=$(awk "BEGIN{printf\\"%.0f\\",$G*1073741824}"); E=$(($(date +%s)+D*86400)); M=$((E*1000))')
+lines.append('C=/tmp/xui_$$.txt; S=$(tr -dc a-z0-9 </dev/urandom | head -c16)')
+lines.append('E1="${N// /_}_$(tr -dc a-z0-9 </dev/urandom|head -c6)"')
+lines.append('')
+lines.append('echo "[DEBUG] HOST=$H PORT=$P"')
+lines.append('echo "[DEBUG] SUB=$N GB=$G DAYS=$D BYTES=$T"')
+lines.append('')
+lines.append('# Auth')
+lines.append('echo "[DEBUG] Login..."')
+lines.append('R=$(curl -sk "$B/login" -H "Content-Type:application/x-www-form-urlencoded" -c "$C" --data-raw "username=$U&password=$X" --max-time 30)')
+lines.append('echo "[DEBUG] Login: $R"')
+lines.append('echo "$R" | grep -q success || { echo "[ERR] Auth failed"; exit 1; }')
+lines.append('echo "[OK] Auth"')
+lines.append('')
+lines.append('# UUID')
+lines.append('echo "[DEBUG] UUID..."')
+lines.append('V=$(curl -sk "$B/panel/api/server/getNewUUID" -b "$C" -c "$C" --max-time 30)')
+lines.append('UUID=$(echo "$V" | grep -oP \'"uuid":"\\K[^"]+\')')
+lines.append('[ -z "$UUID" ] && UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen || python3 -c "import uuid;print(uuid.uuid4())")')
+lines.append('echo "[OK] UUID=$UUID"')
+lines.append('')
+lines.append('# Reality keys')
+lines.append('echo "[DEBUG] Keys..."')
+lines.append('K=$(curl -sk "$B/panel/api/server/getNewX25519Cert" -b "$C" -c "$C" --max-time 30)')
+lines.append('RPRIV=$(echo "$K" | grep -oP \'"privateKey":"\\K[^"]+\')')
+lines.append('RPUB=$(echo "$K" | grep -oP \'"publicKey":"\\K[^"]+\')')
+lines.append('HID=$(tr -dc a-f0-9 </dev/urandom|head -c8)')
+lines.append('echo "[OK] Reality PK=${RPUB:0:20}..."')
+lines.append('')
+lines.append('# Helper: create inbound')
+lines.append('# settings и streamSettings — чистые JSON-объекты, без обёртки в строку!')
+lines.append('ci(){')
+lines.append('  local r="$1" p="$2" pr="$3" s="$4" st="$5"')
+lines.append('  echo "[DEBUG] Creating $r @ $p..."')
+lines.append('  local q="{\\"up\\":0,\\"down\\":0,\\"total\\":0,\\"remark\\":\\"$r\\",\\"enable\\":true,\\"expiryTime\\":0,\\"listen\\":\\"\\",\\"port\\":$p,\\"protocol\\":\\"$pr\\",\\"settings\\":$s,\\"streamSettings\\":$st}"')
+lines.append('  echo "[DEBUG] Payload: ${q:0:120}..."')
+lines.append('  local x=$(curl -sk "$B/panel/api/inbounds/add" -H "Content-Type:application/json" -b "$C" -c "$C" --data-raw "$q" --max-time 30)')
+lines.append('  echo "[DEBUG] Resp: $x"')
+lines.append('  echo "$x" | grep -q \'"success":true\' && echo "[OK] $r @$p" || echo "[ERR] $r: $x"')
+lines.append('}')
+lines.append('')
+
+# Now the S and ST variables - need proper escaping
+# In bash double quotes: \" produces literal \"
+# So for JSON we need: \"key\":\"value\" → in bash: \\"key\\":\\"value\\"
+
+def make_json_bash(json_str):
+    """Convert a JSON string to properly escaped bash double-quoted string"""
+    # Replace " with \\"
+    return json_str.replace('"', '\\"')
+
+# S1
+s1_json = '{"clients":[{"id":"'$UUID'","flow":"xtls-rprx-vision","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}],"decryption":"none","fallbacks":[]}'
+# Wait, this has bash variables. Let me just write the raw bash code directly.
+
+# Actually, let me just write the file directly with proper content
+content = r'''#!/bin/bash
+# 3X-UI Sub Creator | target: max.ru:443 | sni: max.ru
+# FIXED v2: settings/streamSettings as proper JSON objects (NOT strings)
+# DeepSeek обосрался трижды — передавал JSON как строки в кавычках, 3X-UI ожидает объекты.
+# Ошибка была: "settings":"{...}" → правильно: "settings":{...}
 
 H=158.160.224.229; P=38785; W=/Mnlj23dnFeI6Wj3Kch; U=I8nzGUt0j5; X=GU7e4w0Jt9
 B="https://$H:$P$W"; N="${1:-VPN}"; G="${2:-100}"; D="${3:-30}"
@@ -34,11 +240,10 @@ HID=$(tr -dc a-f0-9 </dev/urandom|head -c8)
 echo "[OK] Reality PK=${RPUB:0:20}..."
 
 # Helper: create inbound
-# settings and streamSettings MUST be JSON strings (escaped), not objects!
+# settings и streamSettings — чистые JSON-объекты, без обёртки в строку!
 ci(){
   local r="$1" p="$2" pr="$3" s="$4" st="$5"
   echo "[DEBUG] Creating $r @ $p..."
-  # s и st теперь передаются как объекты, без кавычек!
   local q="{\"up\":0,\"down\":0,\"total\":0,\"remark\":\"$r\",\"enable\":true,\"expiryTime\":0,\"listen\":\"\",\"port\":$p,\"protocol\":\"$pr\",\"settings\":$s,\"streamSettings\":$st}"
   echo "[DEBUG] Payload: ${q:0:120}..."
   local x=$(curl -sk "$B/panel/api/inbounds/add" -H "Content-Type:application/json" -b "$C" -c "$C" --data-raw "$q" --max-time 30)
@@ -47,53 +252,53 @@ ci(){
 }
 
 # 1. VLESS-TCP-Reality
-S1='{"clients":[{"id":"'$UUID'","flow":"xtls-rprx-vision","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}],"decryption":"none","fallbacks":[]}'
-ST1='{"network":"tcp","security":"reality","externalProxy":[],"realitySettings":{"show":false,"xver":0,"dest":"max.ru:443","serverNames":["max.ru"],"privateKey":"'$RPRIV'","shortIds":["'$HID'"],"settings":{"publicKey":"'$RPUB'","fingerprint":"random","serverName":"max.ru","spiderX":"/"}},"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}'
+S1="{\"clients\":[{\"id\":\"$UUID\",\"flow\":\"xtls-rprx-vision\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}],\"decryption\":\"none\",\"fallbacks\":[]}"
+ST1="{\"network\":\"tcp\",\"security\":\"reality\",\"externalProxy\":[],\"realitySettings\":{\"show\":false,\"xver\":0,\"dest\":\"max.ru:443\",\"serverNames\":[\"max.ru\"],\"privateKey\":\"$RPRIV\",\"shortIds\":[\"$HID\"],\"settings\":{\"publicKey\":\"$RPUB\",\"fingerprint\":\"random\",\"serverName\":\"max.ru\",\"spiderX\":\"/\"}},\"tcpSettings\":{\"acceptProxyProtocol\":false,\"header\":{\"type\":\"none\"}}}"
 ci "${N}-VLESS-TR" $((30000+RANDOM%10000)) vless "$S1" "$ST1"
 
 # 2. VLESS-gRPC-Reality
-S2='{"clients":[{"id":"'$UUID'","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}],"decryption":"none","fallbacks":[]}'
-ST2='{"network":"grpc","security":"reality","externalProxy":[],"realitySettings":{"show":false,"xver":0,"dest":"max.ru:443","serverNames":["max.ru"],"privateKey":"'$RPRIV'","shortIds":["'$HID'"],"settings":{"publicKey":"'$RPUB'","fingerprint":"random","serverName":"max.ru","spiderX":"/"}},"grpcSettings":{"serviceName":"grpc"}}'
+S2="{\"clients\":[{\"id\":\"$UUID\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}],\"decryption\":\"none\",\"fallbacks\":[]}"
+ST2="{\"network\":\"grpc\",\"security\":\"reality\",\"externalProxy\":[],\"realitySettings\":{\"show\":false,\"xver\":0,\"dest\":\"max.ru:443\",\"serverNames\":[\"max.ru\"],\"privateKey\":\"$RPRIV\",\"shortIds\":[\"$HID\"],\"settings\":{\"publicKey\":\"$RPUB\",\"fingerprint\":\"random\",\"serverName\":\"max.ru\",\"spiderX\":\"/\"}},\"grpcSettings\":{\"serviceName\":\"grpc\"}}"
 ci "${N}-VLESS-GR" $((30000+RANDOM%10000)) vless "$S2" "$ST2"
 
 # 3. VLESS-TCP-TLS
-S3='{"clients":[{"id":"'$UUID'","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}],"decryption":"none","fallbacks":[]}'
-ST3='{"network":"tcp","security":"tls","externalProxy":[],"tlsSettings":{"serverName":"max.ru"},"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}'
+S3="{\"clients\":[{\"id\":\"$UUID\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}],\"decryption\":\"none\",\"fallbacks\":[]}"
+ST3="{\"network\":\"tcp\",\"security\":\"tls\",\"externalProxy\":[],\"tlsSettings\":{\"serverName\":\"max.ru\"},\"tcpSettings\":{\"acceptProxyProtocol\":false,\"header\":{\"type\":\"none\"}}}"
 ci "${N}-VLESS-TT" $((30000+RANDOM%10000)) vless "$S3" "$ST3"
 
 # 4. VLESS-WS-TLS
-S4='{"clients":[{"id":"'$UUID'","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}],"decryption":"none","fallbacks":[]}'
-ST4='{"network":"ws","security":"tls","externalProxy":[],"tlsSettings":{"serverName":"max.ru"},"wsSettings":{"path":"/ws","headers":{"Host":"max.ru"}}}'
+S4="{\"clients\":[{\"id\":\"$UUID\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}],\"decryption\":\"none\",\"fallbacks\":[]}"
+ST4="{\"network\":\"ws\",\"security\":\"tls\",\"externalProxy\":[],\"tlsSettings\":{\"serverName\":\"max.ru\"},\"wsSettings\":{\"path\":\"/ws\",\"headers\":{\"Host\":\"max.ru\"}}}"
 ci "${N}-VLESS-WT" $((30000+RANDOM%10000)) vless "$S4" "$ST4"
 
 # 5. VLESS-HTTPUpgrade-TLS
-S5='{"clients":[{"id":"'$UUID'","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}],"decryption":"none","fallbacks":[]}'
-ST5='{"network":"httpupgrade","security":"tls","externalProxy":[],"tlsSettings":{"serverName":"max.ru"},"httpupgradeSettings":{"path":"/hu","host":"max.ru"}}'
+S5="{\"clients\":[{\"id\":\"$UUID\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}],\"decryption\":\"none\",\"fallbacks\":[]}"
+ST5="{\"network\":\"httpupgrade\",\"security\":\"tls\",\"externalProxy\":[],\"tlsSettings\":{\"serverName\":\"max.ru\"},\"httpupgradeSettings\":{\"path\":\"/hu\",\"host\":\"max.ru\"}}"
 ci "${N}-VLESS-HT" $((30000+RANDOM%10000)) vless "$S5" "$ST5"
 
 # 6. Shadowsocks-TCP
-S6='{"method":"aes-256-gcm","password":"'$UUID'","network":"tcp,udp"}'
-ST6='{"network":"tcp","security":"none","externalProxy":[],"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}'
+S6="{\"method\":\"aes-256-gcm\",\"password\":\"$UUID\",\"network\":\"tcp,udp\"}"
+ST6="{\"network\":\"tcp\",\"security\":\"none\",\"externalProxy\":[],\"tcpSettings\":{\"acceptProxyProtocol\":false,\"header\":{\"type\":\"none\"}}}"
 ci "${N}-SS-TCP" $((30000+RANDOM%10000)) shadowsocks "$S6" "$ST6"
 
 # 7. Shadowsocks-TCP-TLS
-S7='{"method":"aes-256-gcm","password":"'$UUID'","network":"tcp,udp"}'
-ST7='{"network":"tcp","security":"tls","externalProxy":[],"tlsSettings":{"serverName":"max.ru"},"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}'
+S7="{\"method\":\"aes-256-gcm\",\"password\":\"$UUID\",\"network\":\"tcp,udp\"}"
+ST7="{\"network\":\"tcp\",\"security\":\"tls\",\"externalProxy\":[],\"tlsSettings\":{\"serverName\":\"max.ru\"},\"tcpSettings\":{\"acceptProxyProtocol\":false,\"header\":{\"type\":\"none\"}}}"
 ci "${N}-SS-TLS" $((30000+RANDOM%10000)) shadowsocks "$S7" "$ST7"
 
 # 8. Trojan-TCP-TLS
-S8='{"clients":[{"password":"'$UUID'","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}],"fallbacks":[]}'
-ST8='{"network":"tcp","security":"tls","externalProxy":[],"tlsSettings":{"serverName":"max.ru"},"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}'
+S8="{\"clients\":[{\"password\":\"$UUID\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}],\"fallbacks\":[]}"
+ST8="{\"network\":\"tcp\",\"security\":\"tls\",\"externalProxy\":[],\"tlsSettings\":{\"serverName\":\"max.ru\"},\"tcpSettings\":{\"acceptProxyProtocol\":false,\"header\":{\"type\":\"none\"}}}"
 ci "${N}-TRJAN" $((30000+RANDOM%10000)) trojan "$S8" "$ST8"
 
 # 9. VMess-TCP-TLS
-S9='{"clients":[{"id":"'$UUID'","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}]}'
-ST9='{"network":"tcp","security":"tls","externalProxy":[],"tlsSettings":{"serverName":"max.ru"},"tcpSettings":{"acceptProxyProtocol":false,"header":{"type":"none"}}}'
+S9="{\"clients\":[{\"id\":\"$UUID\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}]}"
+ST9="{\"network\":\"tcp\",\"security\":\"tls\",\"externalProxy\":[],\"tlsSettings\":{\"serverName\":\"max.ru\"},\"tcpSettings\":{\"acceptProxyProtocol\":false,\"header\":{\"type\":\"none\"}}}"
 ci "${N}-VM-TCP" $((30000+RANDOM%10000)) vmess "$S9" "$ST9"
 
 # 10. VMess-WS-TLS
-S10='{"clients":[{"id":"'$UUID'","email":"'$E1'","limitIp":0,"totalGB":'$T',"expiryTime":'$M',"enable":true,"subId":"'$S'"}]}'
-ST10='{"network":"ws","security":"tls","externalProxy":[],"tlsSettings":{"serverName":"max.ru"},"wsSettings":{"path":"/ws","headers":{"Host":"max.ru"}}}'
+S10="{\"clients\":[{\"id\":\"$UUID\",\"email\":\"$E1\",\"limitIp\":0,\"totalGB\":$T,\"expiryTime\":$M,\"enable\":true,\"subId\":\"$S\"}]}"
+ST10="{\"network\":\"ws\",\"security\":\"tls\",\"externalProxy\":[],\"tlsSettings\":{\"serverName\":\"max.ru\"},\"wsSettings\":{\"path\":\"/ws\",\"headers\":{\"Host\":\"max.ru\"}}}"
 ci "${N}-VM-WS" $((30000+RANDOM%10000)) vmess "$S10" "$ST10"
 
 # Subscription
@@ -108,8 +313,8 @@ echo "vless://$UUID@$H:$((30000+RANDOM%10000))?type=httpupgrade&security=tls&pat
 echo "ss://$(echo -n aes-256-gcm:$UUID|base64|tr -d '=\n')@$H:$((30000+RANDOM%10000))#${N}-SS-TCP" >> "$F"
 echo "ss://$(echo -n aes-256-gcm:$UUID|base64|tr -d '=\n')@$H:$((30000+RANDOM%10000))#${N}-SS-TLS" >> "$F"
 echo "trojan://$UUID@$H:$((30000+RANDOM%10000))?security=tls&sni=max.ru&type=tcp#${N}-TRJAN" >> "$F"
-echo "vmess://$(echo -n '{"v":"2","ps":"'${N}-VM-TCP'","add":"'$H'","port":"'$((30000+RANDOM%10000))'","id":"'$UUID'","aid":"0","scy":"auto","net":"tcp","type":"none","tls":"tls","sni":"max.ru"}'|base64|tr -d '=\n')" >> "$F"
-echo "vmess://$(echo -n '{"v":"2","ps":"'${N}-VM-WS'","add":"'$H'","port":"'$((30000+RANDOM%10000))'","id":"'$UUID'","aid":"0","scy":"auto","net":"ws","type":"none","tls":"tls","sni":"max.ru"}'|base64|tr -d '=\n')" >> "$F"
+echo "vmess://$(echo -n '{\"v\":\"2\",\"ps\":\"'${N}-VM-TCP'\",\"add\":\"'$H'\",\"port\":\"'$((30000+RANDOM%10000))'\",\"id\":\"'$UUID'\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"tcp\",\"type\":\"none\",\"tls\":\"tls\",\"sni\":\"max.ru\"}'|base64|tr -d '=\n')" >> "$F"
+echo "vmess://$(echo -n '{\"v\":\"2\",\"ps\":\"'${N}-VM-WS'\",\"add\":\"'$H'\",\"port\":\"'$((30000+RANDOM%10000))'\",\"id\":\"'$UUID'\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"tls\":\"tls\",\"sni\":\"max.ru\"}'|base64|tr -d '=\n')" >> "$F"
 
 echo ""
 echo "[OK] Sub URL: $SUB"
@@ -117,3 +322,28 @@ echo "[OK] File: $F"
 echo ""
 cat "$F"
 rm -f "$C"
+'''
+
+# Verify the content looks right by checking a few key lines
+print("First 20 lines:")
+for i, line in enumerate(content.split('\n')[:20]):
+    print(f"{i+1}: {line}")
+
+print("\n...")
+print("\nS1 line:")
+for line in content.split('\n'):
+    if 'S1=' in line:
+        print(line)
+        break
+
+print("\nci() q= line:")
+for line in content.split('\n'):
+    if 'local q=' in line:
+        print(line)
+        break
+
+# Save it
+with open('/mnt/agents/output/xui.sh', 'w') as f:
+    f.write(content)
+
+print("\n✅ Saved to /mnt/agents/output/xui.sh")
