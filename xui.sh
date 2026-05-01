@@ -35,6 +35,7 @@ echo "[OK] Reality PK=${RPUB:0:20}..."
 
 # Helper: create inbound
 # settings and streamSettings MUST be JSON strings (escaped), not objects!
+# УДАЛИТЬ весь python3 блок, заменить на:
 ci(){
   local r="$1" p="$2" pr="$3" s="$4" st="$5"
   echo "[DEBUG] Creating $r @ $p..."
