@@ -35,18 +35,26 @@ echo "[OK] Reality PK=${RPUB:0:20}..."
 
 # Helper: create inbound
 # settings and streamSettings MUST be JSON strings (escaped), not objects!
-# УДАЛИТЬ весь python3 блок, заменить на:
-# УДАЛИТЬ весь python3 блок, заменить на:
 ci(){
   local r="$1" p="$2" pr="$3" s="$4" st="$5"
   echo "[DEBUG] Creating $r @ $p..."
-  # settings и streamSettings уже строки — просто вставляем их
-  local q="{\"up\":0,\"down\":0,\"total\":0,\"remark\":\"$r\",\"enable\":true,\"expiryTime\":0,\"listen\":\"\",\"port\":$p,\"protocol\":\"$pr\",\"settings\":\"$s\",\"streamSettings\":\"$st\",\"sniffing\":\"{\\\"enabled\\\":true,\\\"destOverride\\\":[\\\"http\\\",\\\"tls\\\",\\\"quic\\\",\\\"fakedns\\\"],\\\"metadataOnly\\\":false,\\\"routeOnly\\\":false}\",\"allocate\":\"{\\\"strategy\\\":\\\"always\\\",\\\"refresh\\\":5,\\\"concurrency\\\":3}\"}"
-  echo "[DEBUG] Payload: ${q:0:120}..."
-  local x=$(curl -sk "$B/panel/api/inbounds/add" -H "Content-Type:application/json" -b "$C" -c "$C" --data-raw "$q" --max-time 30)
-  echo "[DEBUG] Resp: $x"
-  echo "$x" | grep -q '"success":true' && echo "[OK] $r @$p" || echo "[ERR] $r: $x"
+  # Build payload with settings/streamSettings as STRING values
+  local q=$(python3 -c "
+import json
+payload = {
+  'up': 0, 'down': 0, 'total': 0,
+  'remark': '$r',
+  'enable': True,
+  'expiryTime': 0,
+  'listen': '',
+  'port': $p,
+  'protocol': '$pr',
+  'settings': json.dumps($s),
+  'streamSettings': json.dumps($st),
+  'sniffing': {'enabled': True, 'destOverride': ['http','tls','quic','fakedns'], 'metadataOnly': False, 'routeOnly': False},
+  'allocate': {'strategy': 'always', 'refresh': 5, 'concurrency': 3}
 }
+print(json.dumps(payload))
 ")
   echo "[DEBUG] Payload: ${q:0:120}..."
   local x=$(curl -sk "$B/panel/api/inbounds/add" -H "Content-Type:application/json" -b "$C" -c "$C" --data-raw "$q" --max-time 30)
